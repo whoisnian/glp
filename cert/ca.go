@@ -36,7 +36,7 @@ func LoadCA(dir string) (cer *x509.Certificate, key *ecdsa.PrivateKey, err error
 }
 
 func SaveCA(dir string, cer *x509.Certificate, key *ecdsa.PrivateKey) (err error) {
-	if _, err = os.Stat(dir); err == os.ErrNotExist {
+	if _, err = os.Stat(dir); os.IsNotExist(err) {
 		if err = os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
