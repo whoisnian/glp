@@ -5,6 +5,8 @@ import (
 	"sync"
 )
 
+// https://github.com/golang/groupcache/blob/master/lru/lru.go
+
 type SyncCache struct {
 	capacity int
 	queueMu  *sync.Mutex

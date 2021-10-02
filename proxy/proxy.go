@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/tls"
 	"crypto/x509"
+	"io"
 	"net"
 	"net/http"
 
@@ -63,23 +64,30 @@ func (p *Proxy) Handle(conn net.Conn) {
 	}
 
 	if req.Method == "CONNECT" {
-		// for https
-		// outConn, err := net.Dial("tcp", r.RequestURI)
-		// if err != nil {
-		// 	log.Fatal(err)
-		// }
-		// go func() {
-		// 	io.Copy(conn, outConn)
-		// }()
-
 		conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+		logger.Debug("return 200 to proxy req")
 
-		// io.Copy(outConn, conn)
+		tc, sni, err := checkSNI(conn, reader)
+		if err != nil {
+			logger.Error("checkSNI", err)
+			outConn, err := net.Dial("tcp", req.RequestURI)
+			if err != nil {
+				logger.Error("Dial ", err)
+				return
+			}
+			go func() {
+				io.Copy(tc, outConn)
+			}()
+			io.Copy(outConn, tc)
+			return
+		}
+		logger.Info(sni)
+		logger.Debug("parse sni ok")
 
 		h, _, _ := net.SplitHostPort(req.RequestURI)
 		cer, key, err := cert.GenerateChild(p.caCer, p.caKey, []string{h})
 		if err != nil {
-			logger.Error(err)
+			logger.Error("GenerateChild", err)
 			return
 		}
 		config := &tls.Config{
@@ -89,12 +97,13 @@ func (p *Proxy) Handle(conn net.Conn) {
 			}},
 		}
 
-		tlsConn := tls.Server(conn, config)
+		tlsConn := tls.Server(tc, config)
 		defer tlsConn.Close()
+		logger.Debug("upgrade to ssl")
 		reader2 := bufio.NewReader(tlsConn)
 		r2, err := http.ReadRequest(reader2)
 		if err != nil {
-			logger.Error(err)
+			logger.Error("ReadRequest ", err)
 			return
 		}
 
@@ -106,12 +115,14 @@ func (p *Proxy) Handle(conn net.Conn) {
 		logger.Info(req.Method, " ", req.RequestURI)
 		p.handleHTTP(conn, req)
 	}
+	logger.Debug("req end")
 }
 
 func (p *Proxy) handleHTTP(conn net.Conn, req *http.Request) {
+	logger.Debug("handle HTTP")
 	res, err := http.DefaultTransport.RoundTrip(req)
 	if err != nil {
-		logger.Error(err)
+		logger.Error("HandleHTTP ", err)
 		return
 	}
 	res.Write(conn)
