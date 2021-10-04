@@ -21,6 +21,11 @@ type Proxy struct {
 	cerCache *cache.SyncCache
 }
 
+type certPack struct {
+	cer *x509.Certificate
+	key *ecdsa.PrivateKey
+}
+
 func New(caCer *x509.Certificate, caKey *ecdsa.PrivateKey) *Proxy {
 	return &Proxy{
 		caCer, caKey,
@@ -64,66 +69,92 @@ func (p *Proxy) Handle(conn net.Conn) {
 	}
 
 	if req.Method == "CONNECT" {
-		conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
-		logger.Debug("return 200 to proxy req")
+		p.handleConnectMethod(conn, req)
+	} else {
+		p.handleOtherMethod(conn, req)
+	}
+}
 
-		tc, sni, err := checkSNI(conn, reader)
-		if err != nil {
-			logger.Error("checkSNI", err)
-			outConn, err := net.Dial("tcp", req.RequestURI)
-			if err != nil {
-				logger.Error("Dial ", err)
-				return
-			}
-			go func() {
-				io.Copy(tc, outConn)
-			}()
-			io.Copy(outConn, tc)
-			return
-		}
-		logger.Info(sni)
-		logger.Debug("parse sni ok")
+func (p *Proxy) handleConnectMethod(conn net.Conn, req *http.Request) {
+	conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 
-		h, _, _ := net.SplitHostPort(req.RequestURI)
-		cer, key, err := cert.GenerateChild(p.caCer, p.caKey, []string{h})
+	usedConn, sni, err := checkSNI(conn)
+	if err != nil {
+		p.handleTCP(usedConn, req)
+		return
+	}
+
+	if logger.IsDebug() {
+		logger.Debug("checkSNI ok: ", sni)
+	}
+
+	h := sni
+	if h == "" {
+		h, _, _ = net.SplitHostPort(req.RequestURI)
+	}
+	host := hostPromote(h)
+
+	pack, ok := p.cerCache.Load(host[0])
+	if !ok {
+		cer, key, err := cert.GenerateChild(p.caCer, p.caKey, host)
 		if err != nil {
 			logger.Error("GenerateChild", err)
 			return
 		}
-		config := &tls.Config{
-			Certificates: []tls.Certificate{{
-				Certificate: [][]byte{cer.Raw, p.caCer.Raw},
-				PrivateKey:  key,
-			}},
-		}
-
-		tlsConn := tls.Server(tc, config)
-		defer tlsConn.Close()
-		logger.Debug("upgrade to ssl")
-		reader2 := bufio.NewReader(tlsConn)
-		r2, err := http.ReadRequest(reader2)
-		if err != nil {
-			logger.Error("ReadRequest ", err)
-			return
-		}
-
-		r2.URL.Scheme = "https"
-		r2.URL.Host = r2.Host
-		logger.Info(r2.Method, " ", r2.URL)
-		p.handleHTTP(tlsConn, r2)
-	} else {
-		logger.Info(req.Method, " ", req.RequestURI)
-		p.handleHTTP(conn, req)
+		pack, _ = p.cerCache.LoadOrStore(host[0], &certPack{cer, key})
 	}
-	logger.Debug("req end")
+
+	ck := pack.(*certPack)
+	config := &tls.Config{
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{ck.cer.Raw, p.caCer.Raw},
+			PrivateKey:  ck.key,
+		}},
+	}
+
+	tlsConn := tls.Server(usedConn, config)
+	defer tlsConn.Close()
+	reader := bufio.NewReader(tlsConn)
+	r2, err := http.ReadRequest(reader)
+	if err != nil {
+		logger.Error("ReadRequest ", err)
+		return
+	}
+
+	r2.URL.Scheme = "https"
+	r2.URL.Host = r2.Host
+	p.handleHTTP(tlsConn, r2)
+}
+
+func (p *Proxy) handleOtherMethod(conn net.Conn, req *http.Request) {
+	p.handleHTTP(conn, req)
 }
 
 func (p *Proxy) handleHTTP(conn net.Conn, req *http.Request) {
-	logger.Debug("handle HTTP")
+	if len(req.RequestURI) < 4 || req.RequestURI[:4] != "http" {
+		logger.Info("handleHTTP ", req.Method, " ", req.URL.Scheme, "://", req.URL.Host, req.RequestURI)
+	} else {
+		logger.Info("handleHTTP ", req.Method, " ", req.RequestURI)
+	}
 	res, err := http.DefaultTransport.RoundTrip(req)
 	if err != nil {
-		logger.Error("HandleHTTP ", err)
+		logger.Error("handleHTTP ", err)
 		return
 	}
 	res.Write(conn)
+}
+
+func (p *Proxy) handleTCP(conn net.Conn, req *http.Request) {
+	logger.Info("handleTCP ", req.Method, " ", req.RequestURI)
+	outConn, err := net.Dial("tcp", req.RequestURI)
+	if err != nil {
+		logger.Error("handleTCP ", err)
+		return
+	}
+	defer outConn.Close()
+
+	go func() {
+		io.Copy(conn, outConn)
+	}()
+	io.Copy(outConn, conn)
 }

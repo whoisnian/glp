@@ -78,7 +78,7 @@ func CerToString(cer *x509.Certificate) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cer.Raw}))
 }
 
-func CerToFireFoxLink(cer *x509.Certificate) string {
+func CerToFirefoxLink(cer *x509.Certificate) string {
 	arr := strings.Split(strings.TrimSpace(CerToString(cer)), "\n")
 	return "about:certificate?cert=" + url.QueryEscape(strings.Join(arr[1:len(arr)-1], ""))
 }

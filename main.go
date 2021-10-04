@@ -12,6 +12,8 @@ import (
 	"github.com/whoisnian/glp/proxy"
 )
 
+const appName = "glp"
+
 var isDebug = flag.Bool("d", false, "Output debug message")
 var isColorful = flag.Bool("color", true, "Colorize the output")
 var configDir = flag.String("c", "", "Custom config directory")
@@ -29,8 +31,11 @@ func main() {
 			logger.Panic(err)
 		}
 	}
+	if logger.IsDebug() {
+		logger.Debug("Use config dir: ", filepath.Join(*configDir, appName))
+	}
 
-	cer, key, err := cert.LoadCA(filepath.Join(*configDir, "glp"))
+	cer, key, err := cert.LoadCA(filepath.Join(*configDir, appName))
 	if err != nil {
 		logger.Error(err)
 		fmt.Printf("Do you want to generate the CA cert (yes/no)? ")
@@ -44,7 +49,11 @@ func main() {
 		if err != nil {
 			logger.Panic(err)
 		}
-		cert.SaveCA(filepath.Join(*configDir, "glp"), cer, key)
+		cert.SaveCA(filepath.Join(*configDir, appName), cer, key)
+	}
+	if logger.IsDebug() {
+		logger.Debug("Use CA cert:\n", cert.CerToString(cer))
+		logger.Debug("Open in Firefox:\n", cert.CerToFirefoxLink(cer))
 	}
 
 	p := proxy.New(cer, key)

@@ -57,23 +57,9 @@ func GenerateCA() (cer *x509.Certificate, key *ecdsa.PrivateKey, err error) {
 		return nil, nil, err
 	}
 
-	now := time.Now()
-	notBefore := now
-	notAfter := now.AddDate(100, 0, 0)
-	org := pkix.Name{
-		Organization: []string{"Localhost Root CA"},
-		CommonName:   "LCA",
-	}
-	tmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(now.UnixMicro()),
-		Issuer:                org,
-		Subject:               org,
-		NotBefore:             notBefore,
-		NotAfter:              notAfter,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
-	}
+	tmpl := certTemplate()
+	tmpl.IsCA = true
+	tmpl.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageCRLSign
 
 	cer, err = GenerateCert(tmpl, tmpl, &key.PublicKey, key)
 	if err != nil {
@@ -88,6 +74,19 @@ func GenerateChild(parentCer *x509.Certificate, parentKey *ecdsa.PrivateKey, dns
 		return nil, nil, err
 	}
 
+	tmpl := certTemplate()
+	tmpl.DNSNames = dnsNames
+	tmpl.Subject = pkix.Name{CommonName: dnsNames[0]}
+	tmpl.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+
+	cer, err = GenerateCert(tmpl, parentCer, &key.PublicKey, parentKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	return cer, key, nil
+}
+
+func certTemplate() *x509.Certificate {
 	now := time.Now()
 	notBefore := now
 	notAfter := now.AddDate(100, 0, 0)
@@ -95,24 +94,12 @@ func GenerateChild(parentCer *x509.Certificate, parentKey *ecdsa.PrivateKey, dns
 		Organization: []string{"Localhost Root CA"},
 		CommonName:   "LCA",
 	}
-	orgChild := pkix.Name{
-		CommonName: dnsNames[0],
-	}
-	tmpl := &x509.Certificate{
+	return &x509.Certificate{
 		SerialNumber:          big.NewInt(now.UnixMicro()),
 		Issuer:                orgCA,
-		Subject:               orgChild,
+		Subject:               orgCA,
 		NotBefore:             notBefore,
 		NotAfter:              notAfter,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:              dnsNames,
 		BasicConstraintsValid: true,
-		IsCA:                  false,
 	}
-
-	cer, err = GenerateCert(tmpl, parentCer, &key.PublicKey, parentKey)
-	if err != nil {
-		return nil, nil, err
-	}
-	return cer, key, nil
 }
