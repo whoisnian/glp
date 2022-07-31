@@ -1,5 +1,5 @@
 module github.com/whoisnian/glp
 
-go 1.17
+go 1.18
 
-require github.com/whoisnian/glb v0.0.3
+require github.com/whoisnian/glb v1.0.0
