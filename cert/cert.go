@@ -1,94 +1,90 @@
 package cert
 
 import (
+	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
-	"encoding/pem"
 	"errors"
-	"net/url"
-	"os"
-	"strings"
+	"math/big"
 )
 
-func LoadCer(fPath string) (cer *x509.Certificate, err error) {
-	data, err := os.ReadFile(fPath)
-	if err != nil {
-		return nil, err
+// https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/tls.go;l=339
+func parsePrivateKey(der []byte) (crypto.Signer, error) {
+	if key, err := x509.ParsePKCS1PrivateKey(der); err == nil {
+		return key, nil
 	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, errors.New("failed to parse " + fPath)
+	if key, err := x509.ParsePKCS8PrivateKey(der); err == nil {
+		switch key := key.(type) {
+		case *rsa.PrivateKey:
+			return key, nil
+		case *ecdsa.PrivateKey:
+			return key, nil
+		case ed25519.PrivateKey:
+			return key, nil
+		default:
+			return nil, errors.New("cert: found unknown private key type in PKCS#8 wrapping")
+		}
 	}
-	return x509.ParseCertificate(block.Bytes)
+	if key, err := x509.ParseECPrivateKey(der); err == nil {
+		return key, nil
+	}
+	return nil, errors.New("cert: failed to parse private key")
 }
 
-func LoadKey(fPath string) (key *ecdsa.PrivateKey, err error) {
-	data, err := os.ReadFile(fPath)
-	if err != nil {
-		return nil, err
-	}
-	block, _ := pem.Decode(data)
-	if block == nil {
-		return nil, errors.New("failed to parse " + fPath)
-	}
-	return x509.ParseECPrivateKey(block.Bytes)
-}
-
-func Verify(cer *x509.Certificate, key *ecdsa.PrivateKey) error {
-	hash := []byte("verify")
-	r, s, err := ecdsa.Sign(rand.Reader, key, hash)
-	if err != nil {
-		return err
-	}
-	if !ecdsa.Verify(cer.PublicKey.(*ecdsa.PublicKey), hash, r, s) {
-		return errors.New("failed to verify cert with key")
+// https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/tls.go;l=304
+func verify(cer *x509.Certificate, key crypto.Signer) error {
+	switch pub := cer.PublicKey.(type) {
+	case *rsa.PublicKey:
+		if priv, ok := key.(*rsa.PrivateKey); !ok {
+			return errors.New("cert: private key type does not match certificate")
+		} else if pub.N.Cmp(priv.N) != 0 {
+			return errors.New("cert: private key does not match certificate")
+		}
+	case *ecdsa.PublicKey:
+		if priv, ok := key.(*ecdsa.PrivateKey); !ok {
+			return errors.New("cert: private key type does not match certificate")
+		} else if pub.X.Cmp(priv.X) != 0 || pub.Y.Cmp(priv.Y) != 0 {
+			return errors.New("cert: private key does not match certificate")
+		}
+	case ed25519.PublicKey:
+		if priv, ok := key.(ed25519.PrivateKey); !ok {
+			return errors.New("cert: private key type does not match certificate")
+		} else if !pub.Equal(priv.Public()) {
+			return errors.New("cert: private key does not match certificate")
+		}
+	default:
+		return errors.New("cert: unknown public key algorithm")
 	}
 	return nil
 }
 
-func SaveCer(cer *x509.Certificate, fPath string) error {
-	cerF, err := os.Create(fPath)
-	if err != nil {
-		return err
-	}
-	defer cerF.Close()
-
-	err = pem.Encode(cerF, &pem.Block{Type: "CERTIFICATE", Bytes: cer.Raw})
-	return err
+// https://datatracker.ietf.org/doc/html/rfc5280#section-4.1.2.2
+// https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/generate_cert.go;l=106
+func generateSerialNumber() (n *big.Int, err error) {
+	return rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 }
 
-func SaveKey(key *ecdsa.PrivateKey, fPath string) error {
-	keyF, err := os.Create(fPath)
-	if err != nil {
-		return err
-	}
-	defer keyF.Close()
-
-	body, err := x509.MarshalECPrivateKey(key)
-	if err != nil {
-		return err
+// TODO: https://pkg.go.dev/golang.org/x/net/publicsuffix
+func validateCommonName(cn string) string {
+	// len("255.255.255.255") == 15
+	// len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") == 39
+	if len(cn) <= 64 {
+		return cn
 	}
 
-	err = pem.Encode(keyF, &pem.Block{Type: "EC PRIVATE KEY", Bytes: body})
-	return err
+	// xxx.yyy.zzz.s3-accesspoint-fips.dualstack.us-gov-west-1.amazonaws.com => .zzz.s3-accesspoint-fips.dualstack.us-gov-west-1.amazonaws.com
+	for i := len(cn) - 64; i < len(cn); i++ {
+		if cn[i] == '.' {
+			return cn[i:]
+		}
+	}
+	return cn[len(cn)-64:]
 }
 
-func CerToString(cer *x509.Certificate) string {
-	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cer.Raw}))
-}
-
-func CerToFirefoxLink(cer *x509.Certificate) string {
-	arr := strings.Split(strings.TrimSpace(CerToString(cer)), "\n")
-	return "about:certificate?cert=" + url.QueryEscape(strings.Join(arr[1:len(arr)-1], ""))
-}
-
-func KeyToString(key *ecdsa.PrivateKey) string {
-	body, _ := x509.MarshalECPrivateKey(key)
-	return string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: body}))
-}
-
-func GenerateCert(template *x509.Certificate, parent *x509.Certificate, pub interface{}, priv interface{}) (*x509.Certificate, error) {
+func generateCert(template *x509.Certificate, parent *x509.Certificate, pub crypto.PublicKey, priv crypto.Signer) (*x509.Certificate, error) {
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, parent, pub, priv)
 	if err != nil {
 		return nil, err
