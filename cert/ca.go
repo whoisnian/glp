@@ -121,9 +121,9 @@ func generateCA() (*x509.Certificate, crypto.Signer, error) {
 }
 
 // An end-entity certificate is sometimes called a leaf certificate.
-// Set Subject.CommonName from first Subject Alternate Name(sans).
-func GenerateLeaf(caCer *x509.Certificate, caKey crypto.Signer, sans []string) (*x509.Certificate, crypto.Signer, error) {
-	if len(sans) == 0 {
+// Set Subject.CommonName from first Subject Alternate Name(DNSNames and IPAddresses).
+func GenerateLeaf(caCer *x509.Certificate, caKey crypto.Signer, dns []string, ips []net.IP) (*x509.Certificate, crypto.Signer, error) {
+	if len(dns) == 0 && len(ips) == 0 {
 		return nil, nil, errors.New("cert: missing Subject Alternate Name for leaf certificate")
 	}
 
@@ -136,21 +136,15 @@ func GenerateLeaf(caCer *x509.Certificate, caKey crypto.Signer, sans []string) (
 	tmpl := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
-			CommonName:   validateCommonName(sans[0]),
+			CommonName:   validateCommonName(dns, ips),
 			Organization: []string{"mitmproxy"},
 		},
 		NotBefore:          now.Add(-48 * time.Hour),
 		NotAfter:           now.Add(24 * time.Hour * 365),
+		DNSNames:           dns,
+		IPAddresses:        ips,
 		SignatureAlgorithm: x509.SHA256WithRSA,
 		ExtKeyUsage:        []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	for _, san := range sans {
-		ip := net.ParseIP(san)
-		if ip != nil {
-			tmpl.IPAddresses = append(tmpl.IPAddresses, ip)
-		} else {
-			tmpl.DNSNames = append(tmpl.DNSNames, san)
-		}
 	}
 
 	// https://github.com/mitmproxy/mitmproxy/blob/89189849c0134cb4dd8a229035ea5e892100b775/mitmproxy/certs.py#L281

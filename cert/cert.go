@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"math/big"
+	"net"
 )
 
 // https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/tls.go;l=339
@@ -68,9 +69,13 @@ func generateSerialNumber() (n *big.Int, err error) {
 }
 
 // TODO: https://pkg.go.dev/golang.org/x/net/publicsuffix
-func validateCommonName(cn string) string {
-	// len("255.255.255.255") == 15
-	// len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") == 39
+func validateCommonName(dns []string, ips []net.IP) string {
+	if len(dns) == 0 {
+		// len("255.255.255.255") == 15
+		// len("ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff") == 39
+		return ips[0].String()
+	}
+	cn := dns[0]
 	if len(cn) <= 64 {
 		return cn
 	}

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -143,17 +144,12 @@ func (s *Server) handleConnect(conn net.Conn, req *http.Request) {
 		return
 	}
 
-	cer, ok := s.caCache.Load(clientHello.ServerName)
-	if !ok {
-		cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, []string{clientHello.ServerName})
-		if err != nil {
-			global.LOG.Errorf("proxy: handleConnect.GenerateLeaf %s %s %v", req.Method, req.RequestURI, err)
-			s.handleRawTCP(cachedConn, req)
-			return
-		}
-		s.caCache.LoadOrStore(clientHello.ServerName, cer)
+	cer, err := s.getCertFromCache(clientHello, req)
+	if err != nil {
+		global.LOG.Errorf("proxy: getCertFromCache %s %s %v", req.Method, req.RequestURI, err)
+		s.handleRawTCP(cachedConn, req)
+		return
 	}
-
 	tlsConn := tls.Server(cachedConn, &tls.Config{
 		Certificates: []tls.Certificate{{
 			Certificate: [][]byte{cer.Raw, s.caCer.Raw},
@@ -174,4 +170,37 @@ func (s *Server) handleConnect(conn net.Conn, req *http.Request) {
 	tlsReq.URL.Scheme = "https"
 	tlsReq.URL.Host = tlsReq.Host
 	s.handleRawHTTP(bufioConn, tlsReq)
+}
+
+func (s *Server) getCertFromCache(clientHello *tls.ClientHelloInfo, req *http.Request) (cer *x509.Certificate, err error) {
+	san := clientHello.ServerName
+	if len(san) == 0 {
+		host, _, err := net.SplitHostPort(req.Host)
+		if err != nil {
+			return nil, err
+		}
+		san = host
+	}
+
+	if cer, ok := s.caCache.Load(san); ok {
+		return cer, nil
+	}
+
+	ip := net.ParseIP(san)
+	if ip != nil {
+		if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, nil, []net.IP{ip}); err == nil {
+			s.caCache.LoadOrStore(san, cer)
+		}
+	} else {
+		wildcardBelong := "*." + san[strings.IndexByte(san, '.')+1:]
+		if cer, ok := s.caCache.Load(wildcardBelong); ok {
+			return cer, nil
+		}
+		wildcardExtend := "*." + san
+		if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, []string{san, wildcardExtend}, nil); err == nil {
+			s.caCache.LoadOrStore(san, cer)
+			s.caCache.LoadOrStore(wildcardExtend, cer)
+		}
+	}
+	return cer, err
 }
