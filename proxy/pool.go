@@ -7,9 +7,22 @@ import (
 )
 
 var (
+	bufferPool      sync.Pool
 	bufioReaderPool sync.Pool
-	bufioWriterPool sync.Pool
 )
+
+func newBuffer() *[]byte {
+	if v := bufferPool.Get(); v != nil {
+		return v.(*[]byte)
+	}
+	buf := make([]byte, 0, 1024)
+	return &buf
+}
+
+func putBuffer(buf *[]byte) {
+	*buf = (*buf)[:0]
+	bufferPool.Put(buf)
+}
 
 func newBufioReader(r io.Reader) *bufio.Reader {
 	if v := bufioReaderPool.Get(); v != nil {
@@ -23,19 +36,4 @@ func newBufioReader(r io.Reader) *bufio.Reader {
 func putBufioReader(br *bufio.Reader) {
 	br.Reset(nil)
 	bufioReaderPool.Put(br)
-}
-
-func newBufioWriter(w io.Writer) *bufio.Writer {
-	if v := bufioWriterPool.Get(); v != nil {
-		bw := v.(*bufio.Writer)
-		bw.Reset(w)
-		return bw
-	}
-	return bufio.NewWriter(w)
-}
-
-func putBufioWriter(bw *bufio.Writer) {
-	bw.Flush()
-	bw.Reset(nil)
-	bufioWriterPool.Put(bw)
 }
