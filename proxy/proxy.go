@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/whoisnian/glb/util/netutil"
 	"github.com/whoisnian/glp/cert"
 	"github.com/whoisnian/glp/global"
 )
@@ -187,32 +188,43 @@ func (s *Server) handleConnect(conn net.Conn, req *http.Request) {
 func (s *Server) getCertFromCache(clientHello *tls.ClientHelloInfo, req *http.Request) (cer *x509.Certificate, err error) {
 	san := clientHello.ServerName
 	if len(san) == 0 {
-		host, _, err := net.SplitHostPort(req.Host)
-		if err != nil {
-			return nil, err
-		}
-		san = host
+		san, _ = netutil.SplitHostPort(req.Host)
 	}
 
-	if cer, ok := s.caCache.Load(san); ok {
-		return cer, nil
-	}
-
+	var dns []string
+	var ips []net.IP
+	key := san
 	ip := net.ParseIP(san)
 	if ip != nil {
-		if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, nil, []net.IP{ip}); err == nil {
-			s.caCache.LoadOrStore(san, cer)
-		}
+		ips = []net.IP{ip}
 	} else {
-		wildcardBelong := "*." + san[strings.IndexByte(san, '.')+1:]
-		if cer, ok := s.caCache.Load(wildcardBelong); ok {
-			return cer, nil
-		}
-		wildcardExtend := "*." + san
-		if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, []string{san, wildcardExtend}, nil); err == nil {
-			s.caCache.LoadOrStore(san, cer)
-			s.caCache.LoadOrStore(wildcardExtend, cer)
-		}
+		dns = asteriskFor(san)
+		key = dns[0]
+	}
+
+	if cer, ok := s.caCache.Load(key); ok {
+		return cer, nil
+	}
+	if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, dns, ips); err == nil {
+		s.caCache.LoadOrStore(key, cer)
 	}
 	return cer, err
+}
+
+// localhost => localhost
+// example.com => *.example.com + example.com
+// a.example.com => *.example.com + example.com
+// b.a.example.com => *.a.example.com
+func asteriskFor(host string) []string {
+	dot := strings.Count(host, ".")
+	if dot == 0 {
+		return []string{host}
+	} else if dot == 1 {
+		return []string{"*." + host, host}
+	} else if dot == 2 {
+		pos := strings.IndexByte(host, '.')
+		return []string{"*" + host[pos:], host[pos+1:]}
+	} else {
+		return []string{"*" + host[strings.IndexByte(host, '.'):]}
+	}
 }
