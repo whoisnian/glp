@@ -96,7 +96,19 @@ func (s *Server) handleRawHTTP(conn net.Conn, req *http.Request) {
 		global.LOG.Errorf("proxy: handleRawHTTP %s %s %v", req.Method, req.RequestURI, err)
 		return
 	}
-	res.Write(conn)
+	defer res.Body.Close()
+	if w, ok := res.Body.(io.Writer); ok {
+		wg := new(sync.WaitGroup)
+		wg.Add(1)
+		go func() {
+			res.Write(conn)
+			wg.Done()
+		}()
+		io.Copy(w, conn)
+		wg.Wait()
+	} else {
+		res.Write(conn)
+	}
 	global.LOG.Infof("proxy: handleRawHTTP %s %s %dms", req.Method, req.RequestURI, time.Since(start).Milliseconds())
 }
 
