@@ -16,6 +16,7 @@ import (
 	"github.com/whoisnian/glb/util/netutil"
 	"github.com/whoisnian/glp/cert"
 	"github.com/whoisnian/glp/global"
+	"golang.org/x/net/publicsuffix"
 )
 
 type Server struct {
@@ -211,20 +212,41 @@ func (s *Server) getCertFromCache(clientHello *tls.ClientHelloInfo, req *http.Re
 	return cer, err
 }
 
-// localhost => localhost
-// example.com => *.example.com + example.com
-// a.example.com => *.example.com + example.com
-// b.a.example.com => *.a.example.com
+// https://source.chromium.org/chromium/chromium/src/+/main:net/cert/x509_certificate.cc;l=499;drc=facce19fd074e20a40e90d7c7afeee1c47b8dabb
+// https://pki.goog/repo/cp/4.2/GTS-CP.html#3-2-2-6-wildcard-domain-validation
 func asteriskFor(host string) []string {
-	dot := strings.Count(host, ".")
-	if dot == 0 {
+	dotSum := strings.Count(host, ".")
+	if dotSum == 0 {
+		// localhost => localhost
 		return []string{host}
-	} else if dot == 1 {
-		return []string{"*." + host, host}
-	} else if dot == 2 {
-		pos := strings.IndexByte(host, '.')
-		return []string{"*" + host[pos:], host[pos+1:]}
+	}
+
+	if suffix, icann := publicsuffix.PublicSuffix(host); icann {
+		if dotSuffix := strings.Count(suffix, "."); dotSum == dotSuffix {
+			// aisai.aichi.jp => aisai.aichi.jp
+			return []string{host}
+		} else if dotSum-dotSuffix == 1 {
+			// example.com => *.example.com + example.com
+			return []string{"*." + host, host}
+		} else if dotSum-dotSuffix == 2 {
+			// a.example.com => *.example.com + example.com
+			pos := strings.IndexByte(host, '.')
+			return []string{"*" + host[pos:], host[pos+1:]}
+		} else {
+			// b.a.example.com => *.a.example.com
+			return []string{"*" + host[strings.IndexByte(host, '.'):]}
+		}
 	} else {
-		return []string{"*" + host[strings.IndexByte(host, '.'):]}
+		if dotSuffix := strings.Count(suffix, "."); dotSum == dotSuffix {
+			// appspot.com => *.appspot.com + appspot.com
+			return []string{"*." + host, host}
+		} else if dotSum-dotSuffix == 1 {
+			// a.appspot.com => *.appspot.com + appspot.com
+			pos := strings.IndexByte(host, '.')
+			return []string{"*" + host[pos:], host[pos+1:]}
+		} else {
+			// b.a.appspot.com => *.a.appspot.com
+			return []string{"*" + host[strings.IndexByte(host, '.'):]}
+		}
 	}
 }
