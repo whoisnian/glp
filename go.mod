@@ -1,7 +1,10 @@
 module github.com/whoisnian/glp
 
-go 1.21.5
+go 1.21.6
 
-require github.com/whoisnian/glb v1.3.5-0.20231227161055-5c8a365e11c2
+require (
+	github.com/whoisnian/glb v1.3.5
+	golang.org/x/net v0.20.0
+)
 
-require golang.org/x/sys v0.13.0 // indirect
+require golang.org/x/sys v0.16.0 // indirect

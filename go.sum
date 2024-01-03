@@ -1,4 +1,6 @@
-github.com/whoisnian/glb v1.3.5-0.20231227161055-5c8a365e11c2 h1:+YRmC/MFUuzOkXrkkVOQKMpt79WoHh8Rg+lRhms6rEQ=
-github.com/whoisnian/glb v1.3.5-0.20231227161055-5c8a365e11c2/go.mod h1:zMjnzWZHfIvmwj84EteQs0YYMq1um9I1jgZnmZhibHo=
-golang.org/x/sys v0.13.0 h1:Af8nKPmuFypiUBjVoU9V20FiaFXOcuZI21p0ycVYYGE=
-golang.org/x/sys v0.13.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+github.com/whoisnian/glb v1.3.5 h1:OK+2oFrKuHiP7xXuFE7LEJlVdZPUdx2CFAZZkD/usFQ=
+github.com/whoisnian/glb v1.3.5/go.mod h1:MsiT8/LI80x85VmKJ5MXWtAKZ5Ve77WHpe5TfRIKdYA=
+golang.org/x/net v0.20.0 h1:aCL9BSgETF1k+blQaYUBx9hJ9LOGP3gAVemcZlf1Kpo=
+golang.org/x/net v0.20.0/go.mod h1:z8BVo6PvndSri0LbOE3hAn0apkU+1YvI6E70E9jsnvY=
+golang.org/x/sys v0.16.0 h1:xWw16ngr6ZMtmxDyKyIgsE93KNKz5HKmMa3b8ALHidU=
+golang.org/x/sys v0.16.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
