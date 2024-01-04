@@ -10,6 +10,7 @@ import (
 	"errors"
 	"math/big"
 	"net"
+	"strings"
 )
 
 // https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/tls.go;l=339
@@ -68,7 +69,6 @@ func generateSerialNumber() (n *big.Int, err error) {
 	return rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 }
 
-// TODO: https://pkg.go.dev/golang.org/x/net/publicsuffix
 func validateCommonName(dns []string, ips []net.IP) string {
 	if len(dns) == 0 {
 		// len("255.255.255.255") == 15
@@ -81,12 +81,8 @@ func validateCommonName(dns []string, ips []net.IP) string {
 	}
 
 	// xxx.yyy.zzz.s3-accesspoint-fips.dualstack.us-gov-west-1.amazonaws.com => .zzz.s3-accesspoint-fips.dualstack.us-gov-west-1.amazonaws.com
-	for i := len(cn) - 64; i < len(cn); i++ {
-		if cn[i] == '.' {
-			return cn[i:]
-		}
-	}
-	return cn[len(cn)-64:]
+	cn = cn[len(cn)-64:]
+	return cn[strings.IndexByte(cn, '.')+1:]
 }
 
 func generateCert(template *x509.Certificate, parent *x509.Certificate, pub crypto.PublicKey, priv crypto.Signer) (*x509.Certificate, error) {

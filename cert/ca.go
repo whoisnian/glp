@@ -13,21 +13,29 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/whoisnian/glb/util/fsutil"
+	"github.com/whoisnian/glb/util/osutil"
 	"github.com/whoisnian/glp/global"
 )
 
 func Setup(caCertPath string) (*x509.Certificate, crypto.Signer, error) {
-	global.LOG.Infof("loading ca certificate from %s", caCertPath)
-	cer, key, err := loadCA(caCertPath)
+	fullPath, err := fsutil.ExpandHomeDir(caCertPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	global.LOG.Infof("loading ca certificate from %s", fullPath)
+	cer, key, err := loadCA(fullPath)
 	if err != nil && errors.Is(err, fs.ErrNotExist) {
-		global.LOG.Warnf("%s, generating...", err.Error())
+		global.LOG.Warnf("%s, generating new certificate", err.Error())
 		if cer, key, err = generateCA(); err != nil {
 			return nil, nil, err
 		}
-		err = saveCA(caCertPath, cer, key)
+		err = saveCA(fullPath, cer, key)
 	}
 	return cer, key, err
 }
@@ -69,6 +77,10 @@ func loadCA(caCertPath string) (*x509.Certificate, crypto.Signer, error) {
 }
 
 func saveCA(caCertPath string, cer *x509.Certificate, key crypto.Signer) error {
+	if err := os.MkdirAll(filepath.Dir(caCertPath), osutil.DefaultDirMode); err != nil {
+		return err
+	}
+
 	fi, err := os.OpenFile(caCertPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err

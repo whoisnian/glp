@@ -2,13 +2,10 @@ package global
 
 import (
 	"os"
-	"path/filepath"
 
 	"github.com/whoisnian/glb/ansi"
 	"github.com/whoisnian/glb/config"
 	"github.com/whoisnian/glb/logger"
-	"github.com/whoisnian/glb/util/fsutil"
-	"github.com/whoisnian/glb/util/osutil"
 )
 
 type Config struct {
@@ -41,12 +38,5 @@ func Setup() {
 		LOG = logger.New(logger.NewTextHandler(os.Stderr, logger.NewOptions(
 			logger.LevelInfo, false, true,
 		)))
-	}
-
-	if CFG.CACertPath, err = fsutil.ExpandHomeDir(CFG.CACertPath); err != nil {
-		LOG.Fatal(err.Error())
-	}
-	if err = os.MkdirAll(filepath.Dir(CFG.CACertPath), osutil.DefaultDirMode); err != nil {
-		LOG.Fatal(err.Error())
 	}
 }
