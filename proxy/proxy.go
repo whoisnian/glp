@@ -237,7 +237,7 @@ func asteriskFor(host string) []string {
 			return []string{"*" + host[strings.IndexByte(host, '.'):]}
 		}
 	} else {
-		if dotSuffix := strings.Count(suffix, "."); dotSum == dotSuffix {
+		if dotSuffix := strings.Count(suffix, "."); dotSum == 1 || dotSum == dotSuffix {
 			// appspot.com => *.appspot.com + appspot.com
 			return []string{"*." + host, host}
 		} else if dotSum-dotSuffix == 1 {
