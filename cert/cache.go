@@ -64,6 +64,14 @@ func (c *SyncCache) LoadOrStore(key string, value *x509.Certificate) (actual *x5
 	}
 }
 
+func (c *SyncCache) Len() int {
+	return c.len
+}
+
+func (c *SyncCache) Cap() int {
+	return c.cap
+}
+
 func (c *SyncCache) back() *elem {
 	if c.len == 0 {
 		return nil

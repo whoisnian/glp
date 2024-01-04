@@ -20,9 +20,9 @@ import (
 )
 
 type Server struct {
-	caCer   *x509.Certificate
-	caKey   crypto.Signer
-	caCache *cert.SyncCache
+	caCer *x509.Certificate
+	caKey crypto.Signer
+	cache *cert.SyncCache
 
 	dialer    *net.Dialer
 	transport *http.Transport
@@ -35,9 +35,9 @@ func NewServer(cer *x509.Certificate, key crypto.Signer) *Server {
 		KeepAlive: 30 * time.Second,
 	}
 	return &Server{
-		caCer:   cer,
-		caKey:   key,
-		caCache: cert.NewSyncCache(128),
+		caCer: cer,
+		caKey: key,
+		cache: cert.NewSyncCache(128),
 
 		dialer: dialer,
 		transport: &http.Transport{
@@ -83,19 +83,19 @@ func (s *Server) serve(conn net.Conn) {
 		return
 	}
 
-	if req.Method == "CONNECT" {
+	if req.Method == http.MethodConnect {
 		s.handleConnect(bufioConn, req)
 	} else {
 		s.handleRawHTTP(bufioConn, req)
 	}
 }
 
-func (s *Server) handleRawHTTP(conn net.Conn, req *http.Request) {
+func (s *Server) handleRawHTTP(conn *BufioConn, req *http.Request) {
 	start := time.Now()
-	global.LOG.Infof("proxy: handleRawHTTP %s %s", req.Method, req.RequestURI)
+	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
 	res, err := s.transport.RoundTrip(req)
 	if err != nil {
-		global.LOG.Errorf("proxy: handleRawHTTP %s %s %v", req.Method, req.RequestURI, err)
+		global.LOG.Errorf("proxy: handleRawHTTP %s %s %v", req.Method, req.URL, err)
 		return
 	}
 	defer res.Body.Close()
@@ -111,15 +111,15 @@ func (s *Server) handleRawHTTP(conn net.Conn, req *http.Request) {
 	} else {
 		res.Write(conn)
 	}
-	global.LOG.Infof("proxy: handleRawHTTP %s %s %dms", req.Method, req.RequestURI, time.Since(start).Milliseconds())
+	global.LOG.Infof("HTTP  %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
 }
 
-func (s *Server) handleRawTCP(conn net.Conn, req *http.Request) {
+func (s *Server) handleRawTCP(conn *CachedConn, req *http.Request) {
 	start := time.Now()
-	global.LOG.Infof("proxy: handleRawTCP  %s %s", req.Method, req.RequestURI)
-	upstream, err := s.dialer.Dial("tcp", req.RequestURI)
+	global.LOG.Infof("TCP   %-7s %s", req.Method, req.URL)
+	upstream, err := s.dialer.Dial("tcp", req.URL.String())
 	if err != nil {
-		global.LOG.Errorf("proxy: handleRawTCP  %s %s %v", req.Method, req.RequestURI, err)
+		global.LOG.Errorf("proxy: handleRawTCP %s %s %v", req.Method, req.URL, err)
 		return
 	}
 	defer upstream.Close()
@@ -132,10 +132,10 @@ func (s *Server) handleRawTCP(conn net.Conn, req *http.Request) {
 	}()
 	io.Copy(upstream, conn)
 	wg.Wait()
-	global.LOG.Infof("proxy: handleRawTCP  %s %s %dms", req.Method, req.RequestURI, time.Since(start).Milliseconds())
+	global.LOG.Infof("TCP   %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
 }
 
-func (s *Server) handleConnect(conn net.Conn, req *http.Request) {
+func (s *Server) handleConnect(conn *BufioConn, req *http.Request) {
 	conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 
 	cachedConn := NewCachedConn(conn)
@@ -153,14 +153,14 @@ func (s *Server) handleConnect(conn net.Conn, req *http.Request) {
 	}).Handshake()
 	cachedConn.Rewind()
 	if err != errHandshake || clientHello == nil {
-		global.LOG.Errorf("proxy: handleConnect.Handshake %s %s %v", req.Method, req.RequestURI, err)
+		global.LOG.Errorf("proxy: handleConnect.Handshake %s %s %v", req.Method, req.URL, err)
 		s.handleRawTCP(cachedConn, req)
 		return
 	}
 
 	cer, err := s.getCertFromCache(clientHello, req)
 	if err != nil {
-		global.LOG.Errorf("proxy: getCertFromCache %s %s %v", req.Method, req.RequestURI, err)
+		global.LOG.Errorf("proxy: getCertFromCache %s %s %v", req.Method, req.URL, err)
 		s.handleRawTCP(cachedConn, req)
 		return
 	}
@@ -177,7 +177,7 @@ func (s *Server) handleConnect(conn net.Conn, req *http.Request) {
 	defer bufioConn.Close()
 	tlsReq, err := http.ReadRequest(bufioConn.Reader())
 	if err != nil {
-		global.LOG.Errorf("proxy: handleConnect.ReadRequest %s %s %v", req.Method, req.RequestURI, err)
+		global.LOG.Errorf("proxy: handleConnect.ReadRequest %s %s %v", req.Method, req.URL, err)
 		return
 	}
 
@@ -203,11 +203,13 @@ func (s *Server) getCertFromCache(clientHello *tls.ClientHelloInfo, req *http.Re
 		key = dns[0]
 	}
 
-	if cer, ok := s.caCache.Load(key); ok {
+	if cer, ok := s.cache.Load(key); ok {
+		global.LOG.Debugf("CERT  LOAD    %s for %s (%d/%d)", key, san, s.cache.Len(), s.cache.Cap())
 		return cer, nil
 	}
 	if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, dns, ips); err == nil {
-		s.caCache.LoadOrStore(key, cer)
+		s.cache.LoadOrStore(key, cer)
+		global.LOG.Debugf("CERT  SAVE    %s for %s (%d/%d)", key, san, s.cache.Len(), s.cache.Cap())
 	}
 	return cer, err
 }
