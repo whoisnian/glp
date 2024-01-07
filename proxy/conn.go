@@ -54,10 +54,31 @@ func NewCachedConn(conn net.Conn) *CachedConn {
 	}
 }
 
-func (c *CachedConn) Rewind() {
+func (c *CachedConn) Rewind() int {
 	if c.used == -1 {
 		c.used = 0
 	}
+	return len(*c.buffer)
+}
+
+func (c *CachedConn) Prefetch(n int) (buf []byte, err error) {
+	if c.used >= 0 {
+		return nil, errors.New("proxy: prefetch on used connection")
+	} else if len(*c.buffer)+n > cap(*c.buffer) {
+		return nil, errors.New("proxy: cache buffer already full")
+	}
+
+	sum, cur := 0, 0
+	buf = (*c.buffer)[len(*c.buffer) : len(*c.buffer)+n]
+	for sum < n && err == nil {
+		cur, err = c.Conn.Read(buf[sum:])
+		sum += cur
+	}
+	*c.buffer = (*c.buffer)[:len(*c.buffer)+sum]
+	if sum >= n {
+		err = nil
+	}
+	return buf[:sum], err
 }
 
 func (c *CachedConn) Read(b []byte) (n int, err error) {
