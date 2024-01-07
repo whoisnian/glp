@@ -15,7 +15,7 @@ func newBuffer() *[]byte {
 	if v := bufferPool.Get(); v != nil {
 		return v.(*[]byte)
 	}
-	buf := make([]byte, 0, 1024)
+	buf := make([]byte, 0, 4096)
 	return &buf
 }
 
