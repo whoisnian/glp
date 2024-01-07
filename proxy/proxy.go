@@ -1,14 +1,15 @@
 package proxy
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"io"
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -84,42 +85,29 @@ func (s *Server) serve(conn net.Conn) {
 	}
 
 	if req.Method == http.MethodConnect {
-		s.handleConnect(bufioConn, req)
+		bufioConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+
+		if data, err := bufioConn.Reader().Peek(8); err != nil {
+			s.handleTCP(bufioConn, req)
+		} else if validTLSHandshakePrefix(data) {
+			s.handleTLS(bufioConn, req)
+		} else if validHTTPMethodPrefix(data) {
+			s.handleHTTP(bufioConn, req)
+		} else {
+			global.LOG.Warnf("proxy: %x(%s) fallback to tcp", data, strconv.QuoteToGraphic(string(data)))
+			s.handleTCP(bufioConn, req)
+		}
 	} else {
-		s.handleRawHTTP(bufioConn, req)
+		s.handleHTTP(bufioConn, req)
 	}
 }
 
-func (s *Server) handleRawHTTP(conn *BufioConn, req *http.Request) {
-	start := time.Now()
-	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
-	res, err := s.transport.RoundTrip(req)
-	if err != nil {
-		global.LOG.Errorf("proxy: handleRawHTTP %s %s %v", req.Method, req.URL, err)
-		return
-	}
-	defer res.Body.Close()
-	if w, ok := res.Body.(io.Writer); ok {
-		wg := new(sync.WaitGroup)
-		wg.Add(1)
-		go func() {
-			res.Write(conn)
-			wg.Done()
-		}()
-		io.Copy(w, conn)
-		wg.Wait()
-	} else {
-		res.Write(conn)
-	}
-	global.LOG.Infof("HTTP  %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
-}
-
-func (s *Server) handleRawTCP(conn *CachedConn, req *http.Request) {
+func (s *Server) handleTCP(conn net.Conn, req *http.Request) {
 	start := time.Now()
 	global.LOG.Infof("TCP   %-7s %s", req.Method, req.URL)
-	upstream, err := s.dialer.Dial("tcp", req.URL.String())
+	upstream, err := s.dialer.Dial("tcp", req.URL.Host)
 	if err != nil {
-		global.LOG.Errorf("proxy: handleRawTCP %s %s %v", req.Method, req.URL, err)
+		global.LOG.Errorf("proxy: handleTCP %s %s %v", req.Method, req.URL, err)
 		return
 	}
 	defer upstream.Close()
@@ -135,33 +123,47 @@ func (s *Server) handleRawTCP(conn *CachedConn, req *http.Request) {
 	global.LOG.Infof("TCP   %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
 }
 
-func (s *Server) handleConnect(conn *BufioConn, req *http.Request) {
-	conn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+func (s *Server) handleHTTP(conn net.Conn, req *http.Request) {
+	start := time.Now()
+	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
+	res, err := s.transport.RoundTrip(req)
+	if err != nil {
+		global.LOG.Errorf("proxy: handleHTTP %s %s %v", req.Method, req.URL, err)
+		return
+	}
+	defer res.Body.Close()
 
+	if w, ok := res.Body.(io.Writer); ok {
+		wg := new(sync.WaitGroup)
+		wg.Add(1)
+		go func() {
+			res.Write(conn)
+			wg.Done()
+		}()
+		io.Copy(w, conn)
+		wg.Wait()
+	} else {
+		res.Write(conn)
+	}
+	global.LOG.Infof("HTTP  %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
+}
+
+func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	cachedConn := NewCachedConn(conn)
 	defer cachedConn.Close()
 
-	var (
-		clientHello  *tls.ClientHelloInfo
-		errHandshake = errors.New("proxy: expected interrupt handshake")
-	)
-	err := tls.Server(&ReadOnlyConn{cachedConn}, &tls.Config{
-		GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
-			clientHello = info
-			return nil, errHandshake
-		},
-	}).Handshake()
+	serverName, err := readServerNameIndication(cachedConn)
 	cachedConn.Rewind()
-	if err != errHandshake || clientHello == nil {
-		global.LOG.Errorf("proxy: handleConnect.Handshake %s %s %v", req.Method, req.URL, err)
-		s.handleRawTCP(cachedConn, req)
+	if err != nil {
+		global.LOG.Errorf("proxy: readServerNameIndication %s %s %v", req.Method, req.URL, err)
+		s.handleTCP(cachedConn, req)
 		return
 	}
 
-	cer, err := s.getCertFromCache(clientHello, req)
+	cer, err := s.getCertFromCache(serverName, req)
 	if err != nil {
 		global.LOG.Errorf("proxy: getCertFromCache %s %s %v", req.Method, req.URL, err)
-		s.handleRawTCP(cachedConn, req)
+		s.handleTCP(cachedConn, req)
 		return
 	}
 	tlsConn := tls.Server(cachedConn, &tls.Config{
@@ -175,80 +177,116 @@ func (s *Server) handleConnect(conn *BufioConn, req *http.Request) {
 
 	bufioConn := NewBufioConn(tlsConn)
 	defer bufioConn.Close()
-	tlsReq, err := http.ReadRequest(bufioConn.Reader())
-	if err != nil {
-		global.LOG.Errorf("proxy: handleConnect.ReadRequest %s %s %v", req.Method, req.URL, err)
-		return
+	if data, err := bufioConn.Reader().Peek(8); err != nil {
+		s.handleTCP(bufioConn, req)
+	} else if validHTTPMethodPrefix(data) {
+		tlsReq, err := http.ReadRequest(bufioConn.Reader())
+		if err != nil {
+			global.LOG.Errorf("proxy: handleTLS.ReadRequest %s %s %v", req.Method, req.URL, err)
+			return
+		}
+		tlsReq.URL.Scheme = "https"
+		tlsReq.URL.Host = tlsReq.Host
+		s.handleHTTP(bufioConn, tlsReq)
+	} else {
+		global.LOG.Warnf("proxy: %x(%s) fallback to tcp in tls", data, strconv.QuoteToGraphic(string(data)))
+		s.handleTCP(bufioConn, req)
 	}
-
-	tlsReq.URL.Scheme = "https"
-	tlsReq.URL.Host = tlsReq.Host
-	s.handleRawHTTP(bufioConn, tlsReq)
 }
 
-func (s *Server) getCertFromCache(clientHello *tls.ClientHelloInfo, req *http.Request) (cer *x509.Certificate, err error) {
-	san := clientHello.ServerName
-	if len(san) == 0 {
-		san, _ = netutil.SplitHostPort(req.Host)
+func (s *Server) getCertFromCache(serverName string, req *http.Request) (cer *x509.Certificate, err error) {
+	if len(serverName) == 0 {
+		serverName, _ = netutil.SplitHostPort(req.Host)
 	}
 
 	var dns []string
 	var ips []net.IP
-	key := san
-	ip := net.ParseIP(san)
+	key := serverName
+	ip := net.ParseIP(serverName)
 	if ip != nil {
 		ips = []net.IP{ip}
 	} else {
-		dns = asteriskFor(san)
+		dns = wildcardFor(serverName)
 		key = dns[0]
 	}
 
 	if cer, ok := s.cache.Load(key); ok {
-		global.LOG.Debugf("CERT  LOAD    %s for %s (%d/%d)", key, san, s.cache.Len(), s.cache.Cap())
+		global.LOG.Debugf("CERT  LOAD    %s for %s (%d/%d)", key, serverName, s.cache.Len(), s.cache.Cap())
 		return cer, nil
 	}
 	if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, dns, ips); err == nil {
 		s.cache.LoadOrStore(key, cer)
-		global.LOG.Debugf("CERT  SAVE    %s for %s (%d/%d)", key, san, s.cache.Len(), s.cache.Cap())
+		global.LOG.Debugf("CERT  SAVE    %s for %s (%d/%d)", key, serverName, s.cache.Len(), s.cache.Cap())
 	}
 	return cer, err
 }
 
 // https://source.chromium.org/chromium/chromium/src/+/main:net/cert/x509_certificate.cc;l=499;drc=facce19fd074e20a40e90d7c7afeee1c47b8dabb
 // https://pki.goog/repo/cp/4.2/GTS-CP.html#3-2-2-6-wildcard-domain-validation
-func asteriskFor(host string) []string {
-	dotSum := strings.Count(host, ".")
+func wildcardFor(domain string) []string {
+	dotSum := strings.Count(domain, ".")
 	if dotSum == 0 {
 		// localhost => localhost
-		return []string{host}
+		return []string{domain}
 	}
 
-	if suffix, icann := publicsuffix.PublicSuffix(host); icann {
+	if suffix, icann := publicsuffix.PublicSuffix(domain); icann {
 		if dotSuffix := strings.Count(suffix, "."); dotSum == dotSuffix {
 			// aisai.aichi.jp => aisai.aichi.jp
-			return []string{host}
+			return []string{domain}
 		} else if dotSum-dotSuffix == 1 {
 			// example.com => *.example.com + example.com
-			return []string{"*." + host, host}
+			return []string{"*." + domain, domain}
 		} else if dotSum-dotSuffix == 2 {
 			// a.example.com => *.example.com + example.com
-			pos := strings.IndexByte(host, '.')
-			return []string{"*" + host[pos:], host[pos+1:]}
+			pos := strings.IndexByte(domain, '.')
+			return []string{"*" + domain[pos:], domain[pos+1:]}
 		} else {
 			// b.a.example.com => *.a.example.com
-			return []string{"*" + host[strings.IndexByte(host, '.'):]}
+			return []string{"*" + domain[strings.IndexByte(domain, '.'):]}
 		}
 	} else {
 		if dotSuffix := strings.Count(suffix, "."); dotSum == 1 || dotSum == dotSuffix {
 			// appspot.com => *.appspot.com + appspot.com
-			return []string{"*." + host, host}
+			return []string{"*." + domain, domain}
 		} else if dotSum-dotSuffix == 1 {
 			// a.appspot.com => *.appspot.com + appspot.com
-			pos := strings.IndexByte(host, '.')
-			return []string{"*" + host[pos:], host[pos+1:]}
+			pos := strings.IndexByte(domain, '.')
+			return []string{"*" + domain[pos:], domain[pos+1:]}
 		} else {
 			// b.a.appspot.com => *.a.appspot.com
-			return []string{"*" + host[strings.IndexByte(host, '.'):]}
+			return []string{"*" + domain[strings.IndexByte(domain, '.'):]}
 		}
 	}
+}
+
+func validHTTPMethodPrefix(data []byte) bool {
+	pos := bytes.IndexByte(data, ' ')
+	if pos == -1 {
+		return false
+	}
+
+	method := string(data[:pos])
+	if pos == 3 && (method == http.MethodGet || method == http.MethodPut) {
+		return true
+	} else if pos == 4 && (method == http.MethodPost || method == http.MethodHead) {
+		return true
+	} else if pos == 5 && method == http.MethodTrace {
+		return true
+	} else if pos == 6 && method == http.MethodDelete {
+		return true
+	} else if pos == 7 && (method == http.MethodOptions || method == http.MethodConnect) {
+		return true
+	} else {
+		return false
+	}
+}
+
+func validTLSHandshakePrefix(data []byte) bool {
+	// tls.recordTypeHandshake = 0x16
+	// tls.VersionTLS10 = 0x0301
+	// tls.VersionTLS11 = 0x0302
+	// tls.VersionTLS12 = 0x0303
+	// tls.VersionTLS13 = 0x0304
+	return data[0] == 0x16 && data[1] == 0x03 && data[2] < 0x05
 }
