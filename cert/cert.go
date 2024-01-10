@@ -11,6 +11,8 @@ import (
 	"math/big"
 	"net"
 	"strings"
+
+	"golang.org/x/net/publicsuffix"
 )
 
 // https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/tls.go;l=339
@@ -91,4 +93,43 @@ func generateCert(template *x509.Certificate, parent *x509.Certificate, pub cryp
 		return nil, err
 	}
 	return x509.ParseCertificate(derBytes)
+}
+
+// https://source.chromium.org/chromium/chromium/src/+/main:net/cert/x509_certificate.cc;l=499;drc=facce19fd074e20a40e90d7c7afeee1c47b8dabb
+// https://pki.goog/repo/cp/4.2/GTS-CP.html#3-2-2-6-wildcard-domain-validation
+func WildcardDomain(raw string) []string {
+	dotSum := strings.Count(raw, ".")
+	if dotSum == 0 {
+		// localhost => localhost
+		return []string{raw}
+	}
+
+	if suffix, icann := publicsuffix.PublicSuffix(raw); icann {
+		if dotSuffix := strings.Count(suffix, "."); dotSum == dotSuffix {
+			// aisai.aichi.jp => aisai.aichi.jp
+			return []string{raw}
+		} else if dotSum-dotSuffix == 1 {
+			// example.com => *.example.com + example.com
+			return []string{"*." + raw, raw}
+		} else if dotSum-dotSuffix == 2 {
+			// a.example.com => *.example.com + example.com
+			pos := strings.IndexByte(raw, '.')
+			return []string{"*" + raw[pos:], raw[pos+1:]}
+		} else {
+			// b.a.example.com => *.a.example.com
+			return []string{"*" + raw[strings.IndexByte(raw, '.'):]}
+		}
+	} else {
+		if dotSuffix := strings.Count(suffix, "."); dotSum == 1 || dotSum == dotSuffix {
+			// appspot.com => *.appspot.com + appspot.com
+			return []string{"*." + raw, raw}
+		} else if dotSum-dotSuffix == 1 {
+			// a.appspot.com => *.appspot.com + appspot.com
+			pos := strings.IndexByte(raw, '.')
+			return []string{"*" + raw[pos:], raw[pos+1:]}
+		} else {
+			// b.a.appspot.com => *.a.appspot.com
+			return []string{"*" + raw[strings.IndexByte(raw, '.'):]}
+		}
+	}
 }

@@ -10,14 +10,12 @@ import (
 	"net/http"
 	"runtime/debug"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/whoisnian/glb/util/netutil"
 	"github.com/whoisnian/glp/cert"
 	"github.com/whoisnian/glp/global"
-	"golang.org/x/net/publicsuffix"
 )
 
 type Server struct {
@@ -206,7 +204,7 @@ func (s *Server) getCertFromCache(serverName string, req *http.Request) (cer *x5
 	if ip != nil {
 		ips = []net.IP{ip}
 	} else {
-		dns = wildcardFor(serverName)
+		dns = cert.WildcardDomain(serverName)
 		key = dns[0]
 	}
 
@@ -219,45 +217,6 @@ func (s *Server) getCertFromCache(serverName string, req *http.Request) (cer *x5
 		global.LOG.Debugf("CERT  SAVE    %s for %s (%d/%d)", key, serverName, s.cache.Len(), s.cache.Cap())
 	}
 	return cer, err
-}
-
-// https://source.chromium.org/chromium/chromium/src/+/main:net/cert/x509_certificate.cc;l=499;drc=facce19fd074e20a40e90d7c7afeee1c47b8dabb
-// https://pki.goog/repo/cp/4.2/GTS-CP.html#3-2-2-6-wildcard-domain-validation
-func wildcardFor(domain string) []string {
-	dotSum := strings.Count(domain, ".")
-	if dotSum == 0 {
-		// localhost => localhost
-		return []string{domain}
-	}
-
-	if suffix, icann := publicsuffix.PublicSuffix(domain); icann {
-		if dotSuffix := strings.Count(suffix, "."); dotSum == dotSuffix {
-			// aisai.aichi.jp => aisai.aichi.jp
-			return []string{domain}
-		} else if dotSum-dotSuffix == 1 {
-			// example.com => *.example.com + example.com
-			return []string{"*." + domain, domain}
-		} else if dotSum-dotSuffix == 2 {
-			// a.example.com => *.example.com + example.com
-			pos := strings.IndexByte(domain, '.')
-			return []string{"*" + domain[pos:], domain[pos+1:]}
-		} else {
-			// b.a.example.com => *.a.example.com
-			return []string{"*" + domain[strings.IndexByte(domain, '.'):]}
-		}
-	} else {
-		if dotSuffix := strings.Count(suffix, "."); dotSum == 1 || dotSum == dotSuffix {
-			// appspot.com => *.appspot.com + appspot.com
-			return []string{"*." + domain, domain}
-		} else if dotSum-dotSuffix == 1 {
-			// a.appspot.com => *.appspot.com + appspot.com
-			pos := strings.IndexByte(domain, '.')
-			return []string{"*" + domain[pos:], domain[pos+1:]}
-		} else {
-			// b.a.appspot.com => *.a.appspot.com
-			return []string{"*" + domain[strings.IndexByte(domain, '.'):]}
-		}
-	}
 }
 
 func validHTTPMethodPrefix(data []byte) bool {
