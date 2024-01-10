@@ -19,40 +19,25 @@ import (
 )
 
 type Server struct {
-	caCer *x509.Certificate
-	caKey crypto.Signer
+	Addr  string
+	Proxy string
+	CACer *x509.Certificate
+	CAKey crypto.Signer
+
 	cache *cert.SyncCache
-
-	dialer    *net.Dialer
-	transport *http.Transport
 }
 
-func NewServer(cer *x509.Certificate, key crypto.Signer) *Server {
-	// https://pkg.go.dev/net/http#RoundTripper
-	dialer := &net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}
-	return &Server{
-		caCer: cer,
-		caKey: key,
-		cache: cert.NewSyncCache(128),
-
-		dialer: dialer,
-		transport: &http.Transport{
-			Proxy:                 nil, // http.ProxyFromEnvironment,
-			DialContext:           dialer.DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		},
-	}
+func (s *Server) setup() error {
+	s.cache = cert.NewSyncCache(128)
+	return nil
 }
 
-func (s *Server) ListenAndServe(addr string) error {
-	ln, err := net.Listen("tcp", addr)
+func (s *Server) ListenAndServe() error {
+	if err := s.setup(); err != nil {
+		return err
+	}
+
+	ln, err := net.Listen("tcp", s.Addr)
 	if err != nil {
 		return err
 	}
@@ -86,13 +71,14 @@ func (s *Server) serve(conn net.Conn) {
 		bufioConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 
 		if data, err := bufioConn.Reader().Peek(8); err != nil {
+			global.LOG.Warnf("proxy: fallback to tcp %v", err)
 			s.handleTCP(bufioConn, req)
-		} else if validTLSHandshakePrefix(data) {
+		} else if sniffTLSHandshakePrefix(data) {
 			s.handleTLS(bufioConn, req)
-		} else if validHTTPMethodPrefix(data) {
+		} else if sniffHTTPMethodPrefix(data) {
 			s.handleHTTP(bufioConn, req)
 		} else {
-			global.LOG.Warnf("proxy: %x(%s) fallback to tcp", data, strconv.QuoteToGraphic(string(data)))
+			global.LOG.Warnf("proxy: fallback to tcp %x", data)
 			s.handleTCP(bufioConn, req)
 		}
 	} else {
@@ -103,7 +89,7 @@ func (s *Server) serve(conn net.Conn) {
 func (s *Server) handleTCP(conn net.Conn, req *http.Request) {
 	start := time.Now()
 	global.LOG.Infof("TCP   %-7s %s", req.Method, req.URL)
-	upstream, err := s.dialer.Dial("tcp", req.URL.Host)
+	upstream, err := net.Dial("tcp", req.URL.Host)
 	if err != nil {
 		global.LOG.Errorf("proxy: handleTCP %s %s %v", req.Method, req.URL, err)
 		return
@@ -124,7 +110,7 @@ func (s *Server) handleTCP(conn net.Conn, req *http.Request) {
 func (s *Server) handleHTTP(conn net.Conn, req *http.Request) {
 	start := time.Now()
 	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
-	res, err := s.transport.RoundTrip(req)
+	res, err := http.DefaultTransport.RoundTrip(req)
 	if err != nil {
 		global.LOG.Errorf("proxy: handleHTTP %s %s %v", req.Method, req.URL, err)
 		return
@@ -166,8 +152,8 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	}
 	tlsConn := tls.Server(cachedConn, &tls.Config{
 		Certificates: []tls.Certificate{{
-			Certificate: [][]byte{cer.Raw, s.caCer.Raw},
-			PrivateKey:  s.caKey,
+			Certificate: [][]byte{cer.Raw, s.CACer.Raw},
+			PrivateKey:  s.CAKey,
 			Leaf:        cer,
 		}},
 	})
@@ -177,7 +163,7 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	defer bufioConn.Close()
 	if data, err := bufioConn.Reader().Peek(8); err != nil {
 		s.handleTCP(bufioConn, req)
-	} else if validHTTPMethodPrefix(data) {
+	} else if sniffHTTPMethodPrefix(data) {
 		tlsReq, err := http.ReadRequest(bufioConn.Reader())
 		if err != nil {
 			global.LOG.Errorf("proxy: handleTLS.ReadRequest %s %s %v", req.Method, req.URL, err)
@@ -212,14 +198,14 @@ func (s *Server) getCertFromCache(serverName string, req *http.Request) (cer *x5
 		global.LOG.Debugf("CERT  LOAD    %s for %s (%d/%d)", key, serverName, s.cache.Len(), s.cache.Cap())
 		return cer, nil
 	}
-	if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, dns, ips); err == nil {
+	if cer, _, err = cert.GenerateLeaf(s.CACer, s.CAKey, dns, ips); err == nil {
 		s.cache.LoadOrStore(key, cer)
 		global.LOG.Debugf("CERT  SAVE    %s for %s (%d/%d)", key, serverName, s.cache.Len(), s.cache.Cap())
 	}
 	return cer, err
 }
 
-func validHTTPMethodPrefix(data []byte) bool {
+func sniffHTTPMethodPrefix(data []byte) bool {
 	pos := bytes.IndexByte(data, ' ')
 	if pos == -1 {
 		return false
@@ -241,7 +227,7 @@ func validHTTPMethodPrefix(data []byte) bool {
 	}
 }
 
-func validTLSHandshakePrefix(data []byte) bool {
+func sniffTLSHandshakePrefix(data []byte) bool {
 	// tls.recordTypeHandshake = 0x16
 	// tls.VersionTLS10 = 0x0301
 	// tls.VersionTLS11 = 0x0302

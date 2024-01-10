@@ -21,10 +21,15 @@ func main() {
 		global.LOG.Fatal(err.Error())
 	}
 
-	server := proxy.NewServer(cer, key)
+	server := &proxy.Server{
+		Addr:  global.CFG.ListenAddr,
+		Proxy: global.CFG.RelayProxy,
+		CACer: cer,
+		CAKey: key,
+	}
 	go func() {
 		global.LOG.Infof("proxy server started: http://%s", global.CFG.ListenAddr)
-		if err := server.ListenAndServe(global.CFG.ListenAddr); err != nil {
+		if err := server.ListenAndServe(); err != nil {
 			global.LOG.Fatal(err.Error())
 		}
 	}()

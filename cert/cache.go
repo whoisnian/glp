@@ -24,11 +24,11 @@ type SyncCache struct {
 
 func NewSyncCache(cap int) *SyncCache {
 	c := &SyncCache{
-		cap,
-		0,
-		elem{},
-		&sync.Mutex{},
-		make(map[string]*elem),
+		cap:  cap,
+		len:  0,
+		root: elem{},
+		mu:   &sync.Mutex{},
+		idx:  make(map[string]*elem),
 	}
 	c.root.next = &c.root
 	c.root.prev = &c.root

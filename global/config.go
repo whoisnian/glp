@@ -10,8 +10,9 @@ import (
 
 type Config struct {
 	Debug      bool   `flag:"d,false,Enable debug output"`
-	ListenAddr string `flag:"l,127.0.0.1:8080,Proxy server listen addr"`
+	ListenAddr string `flag:"l,127.0.0.1:8080,HTTP proxy server listen addr"`
 	CACertPath string `flag:"ca,~/.mitmproxy/mitmproxy-ca.pem,CA certificate to issue leaf certificates"`
+	RelayProxy string `flag:"proxy,,Relay to upstream proxy (socks5/http/https)"`
 	Version    bool   `flag:"v,false,Show version and quit"`
 }
 
