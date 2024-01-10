@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"time"
 )
 
 type BufioConn struct {
@@ -103,16 +102,3 @@ func (c *CachedConn) Close() error {
 	}
 	return c.Conn.Close()
 }
-
-var errWriteOnReadOnly = errors.New("proxy: write on read-only connection")
-
-type ReadOnlyConn struct{ Conn net.Conn }
-
-func (c *ReadOnlyConn) Read(b []byte) (int, error)       { return c.Conn.Read(b) }
-func (c *ReadOnlyConn) Write([]byte) (int, error)        { return 0, errWriteOnReadOnly }
-func (c *ReadOnlyConn) Close() error                     { return nil }
-func (c *ReadOnlyConn) LocalAddr() net.Addr              { return nil }
-func (c *ReadOnlyConn) RemoteAddr() net.Addr             { return nil }
-func (c *ReadOnlyConn) SetDeadline(time.Time) error      { return nil }
-func (c *ReadOnlyConn) SetReadDeadline(time.Time) error  { return nil }
-func (c *ReadOnlyConn) SetWriteDeadline(time.Time) error { return nil }
