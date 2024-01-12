@@ -16,6 +16,7 @@ import (
 	"github.com/whoisnian/glb/util/netutil"
 	"github.com/whoisnian/glp/cert"
 	"github.com/whoisnian/glp/global"
+	"golang.org/x/net/proxy"
 )
 
 type Server struct {
@@ -24,12 +25,15 @@ type Server struct {
 	CACer *x509.Certificate
 	CAKey crypto.Signer
 
-	cache *cert.SyncCache
+	cache     *cert.SyncCache
+	dialer    proxy.Dialer
+	transport *http.Transport
 }
 
-func (s *Server) setup() error {
+func (s *Server) setup() (err error) {
 	s.cache = cert.NewSyncCache(128)
-	return nil
+	s.dialer, s.transport, err = parseProxy(s.Proxy)
+	return err
 }
 
 func (s *Server) ListenAndServe() error {
@@ -89,7 +93,7 @@ func (s *Server) serve(conn net.Conn) {
 func (s *Server) handleTCP(conn net.Conn, req *http.Request) {
 	start := time.Now()
 	global.LOG.Infof("TCP   %-7s %s", req.Method, req.URL)
-	upstream, err := net.Dial("tcp", req.URL.Host)
+	upstream, err := s.dialer.Dial("tcp", req.URL.Host)
 	if err != nil {
 		global.LOG.Errorf("proxy: handleTCP %s %s %v", req.Method, req.URL, err)
 		return
@@ -110,7 +114,7 @@ func (s *Server) handleTCP(conn net.Conn, req *http.Request) {
 func (s *Server) handleHTTP(conn net.Conn, req *http.Request) {
 	start := time.Now()
 	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
-	res, err := http.DefaultTransport.RoundTrip(req)
+	res, err := s.transport.RoundTrip(req)
 	if err != nil {
 		global.LOG.Errorf("proxy: handleHTTP %s %s %v", req.Method, req.URL, err)
 		return
