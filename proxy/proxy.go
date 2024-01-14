@@ -15,30 +15,37 @@ import (
 var directDialer = &net.Dialer{}
 
 type httpProxy struct {
-	url *url.URL
-	tls bool
+	addr string
+	tls  bool
+	hdr  http.Header
+}
+
+func newHttpProxy(url *url.URL) *httpProxy {
+	hdr := http.Header{}
+	if url.User != nil {
+		pass, _ := url.User.Password()
+		auth := url.User.Username() + ":" + pass
+		hdr = http.Header{"Proxy-Authorization": {"Basic " + base64.StdEncoding.EncodeToString([]byte(auth))}}
+	}
+	return &httpProxy{
+		addr: net.JoinHostPort(url.Hostname(), url.Port()),
+		tls:  url.Scheme == "https",
+		hdr:  hdr,
+	}
 }
 
 func (p *httpProxy) Dial(network, addr string) (conn net.Conn, err error) {
-	targetAddr := net.JoinHostPort(p.url.Hostname(), p.url.Port())
-	hdr := make(http.Header)
-	if p.url.User != nil {
-		password, _ := p.url.User.Password()
-		info := p.url.User.Username() + ":" + password
-		hdr.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(info)))
-	}
 	req := &http.Request{
 		Method: http.MethodConnect,
 		Proto:  "HTTP/1.1",
-		URL:    &url.URL{Opaque: targetAddr},
-		Host:   targetAddr,
-		Header: hdr,
+		URL:    &url.URL{Opaque: addr},
+		Host:   addr,
+		Header: p.hdr,
 	}
-
 	if p.tls {
-		conn, err = tls.DialWithDialer(directDialer, "tcp", targetAddr, nil)
+		conn, err = tls.DialWithDialer(directDialer, "tcp", p.addr, nil)
 	} else {
-		conn, err = directDialer.Dial("tcp", targetAddr)
+		conn, err = directDialer.Dial("tcp", p.addr)
 	}
 	if err != nil {
 		return nil, err
@@ -50,7 +57,7 @@ func (p *httpProxy) Dial(network, addr string) (conn net.Conn, err error) {
 	res, err := http.ReadResponse(bufioConn.Reader(), req)
 	if err != nil {
 		return nil, err
-	} else if res.StatusCode != 200 {
+	} else if res.StatusCode != http.StatusOK {
 		return nil, errors.New("proxy: unexpected CONNECT status: " + res.Status)
 	}
 	return bufioConn, nil
@@ -81,16 +88,14 @@ func parseProxy(rawURL string) (proxy.Dialer, *http.Transport, error) {
 	if u.Scheme == "socks5" {
 		var auth *proxy.Auth
 		if u.User != nil {
-			password, _ := u.User.Password()
-			auth = &proxy.Auth{User: u.User.Username(), Password: password}
+			pass, _ := u.User.Password()
+			auth = &proxy.Auth{User: u.User.Username(), Password: pass}
 		}
 		if dialer, err = proxy.SOCKS5("tcp", net.JoinHostPort(u.Hostname(), u.Port()), auth, directDialer); err != nil {
 			return nil, nil, err
 		}
-	} else if u.Scheme == "http" {
-		dialer = &httpProxy{url: u, tls: false}
-	} else if u.Scheme == "https" {
-		dialer = &httpProxy{url: u, tls: true}
+	} else if u.Scheme == "http" || u.Scheme == "https" {
+		dialer = newHttpProxy(u)
 	} else {
 		return nil, nil, errors.New("proxy: unknown scheme: " + u.Scheme)
 	}
