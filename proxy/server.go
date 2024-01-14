@@ -20,28 +20,30 @@ import (
 )
 
 type Server struct {
-	Addr  string
-	Proxy string
-	CACer *x509.Certificate
-	CAKey crypto.Signer
+	addr  string
+	proxy string
+	caCer *x509.Certificate
+	caKey crypto.Signer
 
 	cache     *cert.SyncCache
 	dialer    proxy.Dialer
 	transport *http.Transport
 }
 
-func (s *Server) setup() (err error) {
-	s.cache = cert.NewSyncCache(128)
-	s.dialer, s.transport, err = parseProxy(s.Proxy)
-	return err
+func NewServer(addr string, proxy string, cer *x509.Certificate, key crypto.Signer) (s *Server, err error) {
+	s = &Server{
+		addr:  addr,
+		proxy: proxy,
+		caCer: cer,
+		caKey: key,
+		cache: cert.NewSyncCache(128),
+	}
+	s.dialer, s.transport, err = parseProxy(proxy)
+	return s, err
 }
 
 func (s *Server) ListenAndServe() error {
-	if err := s.setup(); err != nil {
-		return err
-	}
-
-	ln, err := net.Listen("tcp", s.Addr)
+	ln, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return err
 	}
@@ -156,8 +158,8 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	}
 	tlsConn := tls.Server(cachedConn, &tls.Config{
 		Certificates: []tls.Certificate{{
-			Certificate: [][]byte{cer.Raw, s.CACer.Raw},
-			PrivateKey:  s.CAKey,
+			Certificate: [][]byte{cer.Raw, s.caCer.Raw},
+			PrivateKey:  s.caKey,
 			Leaf:        cer,
 		}},
 	})
@@ -202,7 +204,7 @@ func (s *Server) getCertFromCache(serverName string, req *http.Request) (cer *x5
 		global.LOG.Debugf("CERT  LOAD    %s for %s (%d/%d)", key, serverName, s.cache.Len(), s.cache.Cap())
 		return cer, nil
 	}
-	if cer, _, err = cert.GenerateLeaf(s.CACer, s.CAKey, dns, ips); err == nil {
+	if cer, _, err = cert.GenerateLeaf(s.caCer, s.caKey, dns, ips); err == nil {
 		s.cache.LoadOrStore(key, cer)
 		global.LOG.Debugf("CERT  SAVE    %s for %s (%d/%d)", key, serverName, s.cache.Len(), s.cache.Cap())
 	}

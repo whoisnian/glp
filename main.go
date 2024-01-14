@@ -21,11 +21,9 @@ func main() {
 		global.LOG.Fatal(err.Error())
 	}
 
-	server := &proxy.Server{
-		Addr:  global.CFG.ListenAddr,
-		Proxy: global.CFG.RelayProxy,
-		CACer: cer,
-		CAKey: key,
+	server, err := proxy.NewServer(global.CFG.ListenAddr, global.CFG.RelayProxy, cer, key)
+	if err != nil {
+		global.LOG.Fatal(err.Error())
 	}
 	go func() {
 		global.LOG.Infof("proxy server started: http://%s", global.CFG.ListenAddr)
