@@ -69,7 +69,7 @@ func (s *Server) serve(conn net.Conn) {
 
 	req, err := http.ReadRequest(bufioConn.Reader())
 	if err != nil {
-		global.LOG.Errorf("proxy: serve.ReadRequest: %v", err)
+		global.LOG.Errorf("proxy: serve.ReadRequest: %s", err.Error())
 		return
 	}
 
@@ -77,7 +77,7 @@ func (s *Server) serve(conn net.Conn) {
 		bufioConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 
 		if data, err := bufioConn.Reader().Peek(8); err != nil {
-			global.LOG.Warnf("proxy: fallback to tcp %v", err)
+			global.LOG.Warnf("proxy: fallback to tcp %s", err.Error())
 			s.handleTCP(bufioConn, req)
 		} else if sniffTLSHandshakePrefix(data) {
 			s.handleTLS(bufioConn, req)
@@ -97,7 +97,7 @@ func (s *Server) handleTCP(conn net.Conn, req *http.Request) {
 	global.LOG.Infof("TCP   %-7s %s", req.Method, req.URL)
 	upstream, err := s.dialer.Dial("tcp", req.URL.Host)
 	if err != nil {
-		global.LOG.Errorf("proxy: handleTCP %s %s %v", req.Method, req.URL, err)
+		global.LOG.Errorf("proxy: handleTCP %s %s %s", req.Method, req.URL, err.Error())
 		return
 	}
 	defer upstream.Close()
@@ -118,7 +118,7 @@ func (s *Server) handleHTTP(conn net.Conn, req *http.Request) {
 	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
 	res, err := s.transport.RoundTrip(req)
 	if err != nil {
-		global.LOG.Errorf("proxy: handleHTTP %s %s %v", req.Method, req.URL, err)
+		global.LOG.Errorf("proxy: handleHTTP %s %s %s", req.Method, req.URL, err.Error())
 		return
 	}
 	defer res.Body.Close()
@@ -145,14 +145,14 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	serverName, err := readServerNameIndication(cachedConn)
 	cachedConn.Rewind()
 	if err != nil {
-		global.LOG.Errorf("proxy: readServerNameIndication %s %s %v", req.Method, req.URL, err)
+		global.LOG.Errorf("proxy: readServerNameIndication %s %s %s", req.Method, req.URL, err.Error())
 		s.handleTCP(cachedConn, req)
 		return
 	}
 
 	cer, err := s.getCertFromCache(serverName, req)
 	if err != nil {
-		global.LOG.Errorf("proxy: getCertFromCache %s %s %v", req.Method, req.URL, err)
+		global.LOG.Errorf("proxy: getCertFromCache %s %s %s", req.Method, req.URL, err.Error())
 		s.handleTCP(cachedConn, req)
 		return
 	}
@@ -172,7 +172,7 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	} else if sniffHTTPMethodPrefix(data) {
 		tlsReq, err := http.ReadRequest(bufioConn.Reader())
 		if err != nil {
-			global.LOG.Errorf("proxy: handleTLS.ReadRequest %s %s %v", req.Method, req.URL, err)
+			global.LOG.Errorf("proxy: handleTLS.ReadRequest %s %s %s", req.Method, req.URL, err.Error())
 			return
 		}
 		tlsReq.URL.Scheme = "https"
