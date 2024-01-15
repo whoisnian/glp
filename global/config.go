@@ -31,13 +31,11 @@ func Setup() {
 		panic(err)
 	}
 
+	level := logger.LevelInfo
 	if CFG.Debug {
-		LOG = logger.New(logger.NewNanoHandler(os.Stderr, logger.NewOptions(
-			logger.LevelDebug, ansi.IsSupported(os.Stderr.Fd()), false,
-		)))
-	} else {
-		LOG = logger.New(logger.NewTextHandler(os.Stderr, logger.NewOptions(
-			logger.LevelInfo, false, true,
-		)))
+		level = logger.LevelDebug
 	}
+	LOG = logger.New(logger.NewNanoHandler(os.Stderr, logger.NewOptions(
+		level, ansi.IsSupported(os.Stderr.Fd()), false,
+	)))
 }
