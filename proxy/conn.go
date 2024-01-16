@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"io"
 	"net"
@@ -41,57 +42,44 @@ func (c *BufioConn) Close() error {
 
 type CachedConn struct {
 	net.Conn
-	used   int
-	buffer *[]byte
+	used   bool
+	buffer *bytes.Buffer
 }
 
 func NewCachedConn(conn net.Conn) *CachedConn {
 	return &CachedConn{
 		Conn:   conn,
-		used:   -1,
+		used:   false,
 		buffer: newBuffer(),
 	}
 }
 
 func (c *CachedConn) Rewind() int {
-	if c.used == -1 {
-		c.used = 0
-	}
-	return len(*c.buffer)
+	c.used = true
+	return c.buffer.Len()
 }
 
 func (c *CachedConn) Prefetch(n int) (buf []byte, err error) {
-	if c.used >= 0 {
+	if c.used {
 		return nil, errors.New("proxy: prefetch on used connection")
-	} else if len(*c.buffer)+n > cap(*c.buffer) {
-		return nil, errors.New("proxy: cache buffer already full")
 	}
 
-	sum, cur := 0, 0
-	buf = (*c.buffer)[len(*c.buffer) : len(*c.buffer)+n]
-	for sum < n && err == nil {
-		cur, err = c.Conn.Read(buf[sum:])
-		sum += cur
-	}
-	*c.buffer = (*c.buffer)[:len(*c.buffer)+sum]
-	if sum >= n {
-		err = nil
-	}
-	return buf[:sum], err
+	pos := c.buffer.Len()
+	_, err = c.buffer.ReadFrom(io.LimitReader(c.Conn, int64(n)))
+	return c.buffer.Bytes()[pos:], err
 }
 
 func (c *CachedConn) Read(b []byte) (n int, err error) {
-	if c.used == -1 {
-		n, err = c.Conn.Read(b)
-		*c.buffer = append(*c.buffer, b[:n]...)
-		return n, err
-	} else {
-		if len(*c.buffer) > c.used {
-			n = copy(b, (*c.buffer)[c.used:])
-			c.used += n
+	if c.used {
+		if c.buffer.Len() > 0 {
+			n, _ = c.buffer.Read(b)
 			return n, nil
 		}
 		return c.Conn.Read(b)
+	} else {
+		n, err = c.Conn.Read(b)
+		c.buffer.Write(b[:n])
+		return n, err
 	}
 }
 
