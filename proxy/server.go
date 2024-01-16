@@ -5,9 +5,11 @@ import (
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"runtime/debug"
 	"strconv"
 	"sync"
@@ -73,8 +75,14 @@ func (s *Server) serve(conn net.Conn) {
 		return
 	}
 
-	if req.Method == http.MethodConnect {
-		bufioConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+	if req.URL.Host == "" {
+		if req.Method == http.MethodGet && req.URL.Path == "/status" {
+			s.handleStatus(bufioConn, req)
+		} else {
+			bufioConn.Write([]byte("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"))
+		}
+	} else if req.Method == http.MethodConnect {
+		bufioConn.Write([]byte("HTTP/1.1 200 Connection established\r\nContent-Length: 0\r\n\r\n"))
 
 		if data, err := bufioConn.Reader().Peek(8); err != nil {
 			global.LOG.Warnf("proxy: fallback to tcp %s", err.Error())
@@ -90,6 +98,31 @@ func (s *Server) serve(conn net.Conn) {
 	} else {
 		s.handleHTTP(bufioConn, req)
 	}
+}
+
+func (s *Server) handleStatus(conn net.Conn, req *http.Request) {
+	start := time.Now()
+	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
+
+	buf := newBuffer()
+	defer putBuffer(buf)
+
+	json.NewEncoder(buf).Encode(struct {
+		Goroutines int
+		CacheUse   int
+		CacheCap   int
+	}{
+		runtime.NumGoroutine(),
+		s.cache.Len(),
+		s.cache.Cap(),
+	})
+
+	conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Type: application/json;charset=utf-8\r\nContent-Length: "))
+	conn.Write([]byte(strconv.FormatInt(int64(buf.Len()), 10)))
+	conn.Write([]byte("\r\n\r\n"))
+	buf.WriteTo(conn)
+
+	global.LOG.Infof("HTTP  %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
 }
 
 func (s *Server) handleTCP(conn net.Conn, req *http.Request) {
