@@ -1,10 +1,11 @@
-package cert
+package ca
 
 import (
 	"crypto/x509"
 	"sync"
 )
 
+// https://github.com/golang/groupcache/blob/master/lru/lru.go
 type elem struct {
 	next *elem
 	prev *elem
@@ -13,7 +14,7 @@ type elem struct {
 	cert *x509.Certificate
 }
 
-type SyncCache struct {
+type Cache struct {
 	cap  int
 	len  int
 	root elem
@@ -22,8 +23,8 @@ type SyncCache struct {
 	idx map[string]*elem
 }
 
-func NewSyncCache(cap int) *SyncCache {
-	c := &SyncCache{
+func NewCache(cap int) *Cache {
+	c := &Cache{
 		cap:  cap,
 		len:  0,
 		root: elem{},
@@ -35,7 +36,7 @@ func NewSyncCache(cap int) *SyncCache {
 	return c
 }
 
-func (c *SyncCache) Load(key string) (value *x509.Certificate, ok bool) {
+func (c *Cache) Load(key string) (value *x509.Certificate, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -46,7 +47,7 @@ func (c *SyncCache) Load(key string) (value *x509.Certificate, ok bool) {
 	return nil, false
 }
 
-func (c *SyncCache) LoadOrStore(key string, value *x509.Certificate) (actual *x509.Certificate, loaded bool) {
+func (c *Cache) LoadOrStore(key string, value *x509.Certificate) (actual *x509.Certificate, loaded bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -64,22 +65,22 @@ func (c *SyncCache) LoadOrStore(key string, value *x509.Certificate) (actual *x5
 	}
 }
 
-func (c *SyncCache) Len() int {
+func (c *Cache) Len() int {
 	return c.len
 }
 
-func (c *SyncCache) Cap() int {
+func (c *Cache) Cap() int {
 	return c.cap
 }
 
-func (c *SyncCache) back() *elem {
+func (c *Cache) back() *elem {
 	if c.len == 0 {
 		return nil
 	}
 	return c.root.prev
 }
 
-func (c *SyncCache) moveToFront(e *elem) {
+func (c *Cache) moveToFront(e *elem) {
 	if c.root.next == e {
 		return
 	}
@@ -91,7 +92,7 @@ func (c *SyncCache) moveToFront(e *elem) {
 	e.next.prev = e
 }
 
-func (c *SyncCache) pushFront(e *elem) *elem {
+func (c *Cache) pushFront(e *elem) *elem {
 	e.prev = &c.root
 	e.next = c.root.next
 	e.prev.next = e
@@ -101,7 +102,7 @@ func (c *SyncCache) pushFront(e *elem) *elem {
 	return e
 }
 
-func (c *SyncCache) remove(e *elem) {
+func (c *Cache) remove(e *elem) {
 	e.prev.next = e.next
 	e.next.prev = e.prev
 	e.next = nil
