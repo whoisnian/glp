@@ -78,7 +78,7 @@ func (c *CachedConn) Read(b []byte) (n int, err error) {
 		return c.Conn.Read(b)
 	} else {
 		n, err = c.Conn.Read(b)
-		c.buffer.Write(b[:n])
+		c.buffer.Write(b[:n]) // err is always nil
 		return n, err
 	}
 }

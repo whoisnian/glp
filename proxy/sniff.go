@@ -1,8 +1,41 @@
 package proxy
 
 import (
+	"bytes"
 	"errors"
+	"net/http"
+
+	"github.com/whoisnian/glb/util/strutil"
 )
+
+var httpMethods = []string{
+	http.MethodGet,
+	http.MethodPost,
+	http.MethodPut,
+	http.MethodDelete,
+	http.MethodHead,
+	http.MethodPatch,
+	http.MethodOptions,
+	http.MethodConnect,
+	http.MethodTrace,
+}
+
+func sniffHTTPMethodPrefix(data []byte) bool {
+	pos := bytes.IndexByte(data, ' ')
+	if pos == -1 {
+		return false
+	}
+	return strutil.SliceContain(httpMethods, string(data[:pos]))
+}
+
+func sniffTLSHandshakePrefix(data []byte) bool {
+	// tls.recordTypeHandshake = 0x16
+	// tls.VersionTLS10 = 0x0301
+	// tls.VersionTLS11 = 0x0302
+	// tls.VersionTLS12 = 0x0303
+	// tls.VersionTLS13 = 0x0304
+	return data[0] == 0x16 && data[1] == 0x03 && data[2] < 0x05
+}
 
 // https://www.ibm.com/docs/en/ztpf/2023?topic=sessions-ssl-record-format
 // https://datatracker.ietf.org/doc/html/rfc8446#section-5.1
@@ -22,7 +55,6 @@ import (
 //	Bytes   xx-xx +5= CipherSuites <2..2^16-2>
 //	Bytes   xx-xx +5= CompressionMethods <1..2^8-1>
 //	Bytes   xx-xx +5= Extensions <8..2^16-1>
-
 const (
 	recordHeaderLen        int    = 5
 	recordTypeHandshake    uint8  = 0x16
@@ -30,7 +62,7 @@ const (
 	extensionServerName    uint16 = 0
 )
 
-func readServerNameIndication(conn *CachedConn) (string, error) {
+func sniffTLSHandshakeServerName(conn *CachedConn) (string, error) {
 	hdr, err := conn.Prefetch(recordHeaderLen)
 	if err != nil {
 		return "", err
