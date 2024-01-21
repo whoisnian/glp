@@ -66,6 +66,9 @@ func (c *CachedConn) Prefetch(n int) (buf []byte, err error) {
 
 	pos := c.buffer.Len()
 	_, err = c.buffer.ReadFrom(io.LimitReader(c.Conn, int64(n)))
+	if err != nil && errors.Is(err, io.EOF) {
+		err = nil
+	}
 	return c.buffer.Bytes()[pos:], err
 }
 
