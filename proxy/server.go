@@ -64,14 +64,14 @@ func (s *Server) serve(conn net.Conn) {
 
 		if data, err := bufioConn.Reader().Peek(8); err != nil {
 			global.LOG.Warnf("proxy: fallback to tcp error %s", err.Error())
-			s.handleTCP(bufioConn, req)
+			s.handleTCP(bufioConn, req, false)
 		} else if sniffTLSHandshakePrefix(data) {
 			s.handleTLS(bufioConn, req)
 		} else if sniffHTTPMethodPrefix(data) {
 			s.handleHTTP(bufioConn, req)
 		} else {
 			global.LOG.Warnf("proxy: fallback to tcp unknown %s", strconv.QuoteToGraphic(string(data)))
-			s.handleTCP(bufioConn, req)
+			s.handleTCP(bufioConn, req, false)
 		}
 	} else {
 		s.handleHTTP(bufioConn, req)

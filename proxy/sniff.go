@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"net/http"
 
@@ -35,6 +36,22 @@ func sniffTLSHandshakePrefix(data []byte) bool {
 	// tls.VersionTLS12 = 0x0303
 	// tls.VersionTLS13 = 0x0304
 	return data[0] == 0x16 && data[1] == 0x03 && data[2] < 0x05
+}
+
+// https://source.chromium.org/chromium/chromium/src/+/main:google_apis/gcm/engine/connection_handler_impl.cc;l=126;drc=93a273dd903e50a36011ea159fd9dc70c7000d87
+// https://source.chromium.org/chromium/chromium/src/+/main:google_apis/gcm/protocol/mcs.proto;l=110;drc=8ce0344d2751d1e3c0800f6af56fdb7cff9519b4
+func sniffGcmLoginPrefix(data []byte) bool {
+	// ")\x02\x97\x01\n\x14ch"
+	// ")\x02\xae\x01\n\x15ch"
+
+	// kMCSVersion: 0x29(41)
+	// kLoginRequestTag: 0x02(2)
+	if data[0] != 0x29 || data[1] != 0x02 {
+		return false
+	}
+
+	_, n := binary.Uvarint(data[2:])
+	return n > 0 && 2+n < len(data) && data[2+n] == 0x0a // (field_number << 3) | wire_type
 }
 
 // https://www.ibm.com/docs/en/ztpf/2023?topic=sessions-ssl-record-format

@@ -45,13 +45,17 @@ func (s *Server) handleRequest(conn net.Conn, req *http.Request) {
 	global.LOG.Infof("HTTP  %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
 }
 
-func (s *Server) handleTCP(conn net.Conn, req *http.Request) {
+func (s *Server) handleTCP(conn net.Conn, req *http.Request, secure bool) {
 	start := time.Now()
 	global.LOG.Infof("TCP   %-7s %s", req.Method, req.URL)
 	upstream, err := s.dialer.Dial("tcp", req.URL.Host)
 	if err != nil {
 		global.LOG.Errorf("proxy: handleTCP %s %s %s", req.Method, req.URL, err.Error())
 		return
+	}
+	if secure {
+		hostname, _ := netutil.SplitHostPort(req.URL.Host)
+		upstream = tls.Client(upstream, &tls.Config{ServerName: hostname})
 	}
 	defer upstream.Close()
 
@@ -99,7 +103,7 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	cachedConn.Rewind()
 	if err != nil {
 		global.LOG.Errorf("proxy: sniffTLSHandshakeServerName %s %s %s", req.Method, req.URL, err.Error())
-		s.handleTCP(cachedConn, req)
+		s.handleTCP(cachedConn, req, false)
 		return
 	}
 
@@ -109,7 +113,7 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	cer, key, err := s.ca.GetLeaf(serverName)
 	if err != nil {
 		global.LOG.Errorf("proxy: ca.GetLeaf %s %s %s", req.Method, req.URL, err.Error())
-		s.handleTCP(cachedConn, req)
+		s.handleTCP(cachedConn, req, false)
 		return
 	}
 	tlsConn := tls.Server(cachedConn, &tls.Config{
@@ -124,8 +128,8 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 	bufioConn := NewBufioConn(tlsConn)
 	defer bufioConn.Close()
 	if data, err := bufioConn.Reader().Peek(8); err != nil {
-		global.LOG.Warnf("proxy: fallback to tcp in tls error %s", err.Error())
-		s.handleTCP(bufioConn, req)
+		global.LOG.Warnf("proxy: fallback to tcp in tls error %s for %s %s", err.Error(), req.Method, req.URL)
+		s.handleTCP(bufioConn, req, true)
 	} else if sniffHTTPMethodPrefix(data) {
 		tlsReq, err := http.ReadRequest(bufioConn.Reader())
 		if err != nil {
@@ -135,8 +139,10 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 		tlsReq.URL.Scheme = "https"
 		tlsReq.URL.Host = tlsReq.Host
 		s.handleHTTP(bufioConn, tlsReq)
+	} else if sniffGcmLoginPrefix(data) {
+		s.handleTCP(bufioConn, req, true)
 	} else {
-		global.LOG.Warnf("proxy: fallback to tcp in tls unknown %s", strconv.QuoteToGraphic(string(data)))
-		s.handleTCP(bufioConn, req)
+		global.LOG.Warnf("proxy: fallback to tcp in tls unknown %s for %s %s", strconv.QuoteToGraphic(string(data)), req.Method, req.URL)
+		s.handleTCP(bufioConn, req, true)
 	}
 }
