@@ -122,6 +122,7 @@ func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
 			PrivateKey:  key,
 			Leaf:        cer,
 		}},
+		KeyLogWriter: s.klogw,
 	})
 	defer tlsConn.Close()
 

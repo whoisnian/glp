@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"io"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -15,13 +16,14 @@ type Server struct {
 	addr  string
 	proxy string
 	ca    *ca.Store
+	klogw io.Writer
 
 	dialer    proxy.Dialer
 	transport *http.Transport
 }
 
-func NewServer(addr string, proxy string, ca *ca.Store) (s *Server, err error) {
-	s = &Server{addr: addr, proxy: proxy, ca: ca}
+func NewServer(addr string, proxy string, ca *ca.Store, klogw io.Writer) (s *Server, err error) {
+	s = &Server{addr: addr, proxy: proxy, ca: ca, klogw: klogw}
 	s.dialer, s.transport, err = parseProxy(proxy)
 	return s, err
 }

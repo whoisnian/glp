@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/whoisnian/glb/util/osutil"
 	"github.com/whoisnian/glp/ca"
@@ -21,7 +22,16 @@ func main() {
 		global.LOG.Fatal(err.Error())
 	}
 
-	server, err := proxy.NewServer(global.CFG.ListenAddr, global.CFG.RelayProxy, caStore)
+	var keyLogWriter *os.File
+	if global.CFG.KeyLogFile != "" {
+		keyLogWriter, err = os.Create(global.CFG.KeyLogFile)
+		if err != nil {
+			global.LOG.Fatal(err.Error())
+		}
+		defer keyLogWriter.Close()
+	}
+
+	server, err := proxy.NewServer(global.CFG.ListenAddr, global.CFG.RelayProxy, caStore, keyLogWriter)
 	if err != nil {
 		global.LOG.Fatal(err.Error())
 	}
