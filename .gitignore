@@ -1,6 +1,11 @@
-# Ignore vscode
-.vscode
+# Ignore editor configuration
+.idea/
+.vscode/
 
-# Ignore binary
-/main
-/glp
+# Ignore directory of file with `-gitignore`
+**/*-gitignore/**
+**/*-gitignore
+
+# Ignore build results
+output/
+main
