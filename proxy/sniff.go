@@ -57,7 +57,7 @@ func sniffGcmLoginPrefix(data []byte) bool {
 // https://www.ibm.com/docs/en/ztpf/2023?topic=sessions-ssl-record-format
 // https://datatracker.ietf.org/doc/html/rfc8446#section-5.1
 // https://datatracker.ietf.org/doc/html/rfc8446#section-4.1.2
-// https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/handshake_messages.go;l=369
+// https://cs.opensource.google/go/go/+/refs/tags/go1.22.1:src/crypto/tls/handshake_messages.go;l=369
 //
 // SSL handshake record with ClientHello
 //

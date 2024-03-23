@@ -1,5 +1,5 @@
 // https://docs.mitmproxy.org/stable/concepts-certificates/
-// https://github.com/mitmproxy/mitmproxy/blob/89189849c0134cb4dd8a229035ea5e892100b775/mitmproxy/certs.py
+// https://github.com/mitmproxy/mitmproxy/blob/d4200a7c0d2f4efd77c44651645b59662a29a54a/mitmproxy/certs.py
 package ca
 
 import (
@@ -46,7 +46,7 @@ func NewStore(certPath string) (*Store, error) {
 	return &s, err
 }
 
-// https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/tls.go;l=245
+// https://cs.opensource.google/go/go/+/refs/tags/go1.22.1:src/crypto/tls/tls.go;l=245
 func (s *Store) loadFrom(certPath string) error {
 	data, err := os.ReadFile(certPath)
 	if err != nil {
@@ -100,8 +100,8 @@ func (s *Store) saveAs(certPath string) error {
 	return pem.Encode(fi, &pem.Block{Type: "CERTIFICATE", Bytes: s.caCer.Raw})
 }
 
-// https://cs.opensource.google/go/go/+/refs/tags/go1.21.5:src/crypto/tls/generate_cert.go
-// https://github.com/mitmproxy/mitmproxy/blob/89189849c0134cb4dd8a229035ea5e892100b775/mitmproxy/certs.py#L176
+// https://cs.opensource.google/go/go/+/refs/tags/go1.22.1:src/crypto/tls/generate_cert.go
+// https://github.com/mitmproxy/mitmproxy/blob/d4200a7c0d2f4efd77c44651645b59662a29a54a/mitmproxy/certs.py#L176
 func (s *Store) generateCA() (err error) {
 	s.caKey, err = rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -161,7 +161,7 @@ func (s *Store) generateLeaf(dns []string, ips []net.IP) (*x509.Certificate, cry
 		ExtKeyUsage:        []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
 
-	// https://github.com/mitmproxy/mitmproxy/blob/89189849c0134cb4dd8a229035ea5e892100b775/mitmproxy/certs.py#L281
+	// https://github.com/mitmproxy/mitmproxy/blob/d4200a7c0d2f4efd77c44651645b59662a29a54a/mitmproxy/certs.py#L281
 	cer, err := generateCert(&tmpl, s.caCer, s.caKey.Public(), s.caKey)
 	return cer, s.caKey, err
 }
