@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/whoisnian/glb/util/osutil"
@@ -25,7 +26,7 @@ func main() {
 		global.LOG.Fatal(err.Error())
 	}
 
-	var keyLogWriter *os.File
+	var keyLogWriter io.WriteCloser
 	if global.CFG.KeyLogFile != "" {
 		keyLogWriter, err = os.Create(global.CFG.KeyLogFile)
 		if err != nil {
