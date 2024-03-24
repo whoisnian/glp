@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -186,10 +187,19 @@ func (s *Store) GetLeaf(serverName string) (*x509.Certificate, crypto.Signer, er
 	}
 
 	if cer, ok := s.Cache.Load(serverName); ok {
+		global.LOG.Debug("",
+			global.LogAttrMap["CERT"],
+			global.LogAttrMap["LOAD"],
+			slog.String("name", serverName),
+		)
 		return cer, s.caKey, nil
 	}
 	if cer, _, err := s.generateLeaf(dns, ips); err == nil {
-		global.LOG.Debugf("CERT  STORE   %s", serverName)
+		global.LOG.Debug("",
+			global.LogAttrMap["CERT"],
+			global.LogAttrMap["STORE"],
+			slog.String("name", serverName),
+		)
 		s.Cache.LoadOrStore(serverName, cer)
 		return cer, s.caKey, nil
 	} else {

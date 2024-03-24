@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"runtime"
@@ -23,7 +24,11 @@ type ServerStatus struct {
 
 func (s *Server) handleRequest(conn net.Conn, req *http.Request) {
 	start := time.Now()
-	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
+	global.LOG.Debug("",
+		global.LogAttrMap["HTTP"],
+		global.LogAttrMap[req.Method],
+		slog.Any("url", req.URL),
+	)
 
 	if req.Method == http.MethodGet && req.URL.Path == "/status" {
 		buf := newBuffer()
@@ -42,12 +47,21 @@ func (s *Server) handleRequest(conn net.Conn, req *http.Request) {
 	} else {
 		conn.Write([]byte("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"))
 	}
-	global.LOG.Infof("HTTP  %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
+	global.LOG.Info("",
+		global.LogAttrMap["HTTP"],
+		global.LogAttrMap[req.Method],
+		slog.Any("url", req.URL),
+		slog.Duration("duration", time.Since(start)),
+	)
 }
 
 func (s *Server) handleTCP(conn net.Conn, req *http.Request, secure bool) {
 	start := time.Now()
-	global.LOG.Infof("TCP   %-7s %s", req.Method, req.URL)
+	global.LOG.Debug("",
+		global.LogAttrMap["TCP"],
+		global.LogAttrMap[req.Method],
+		slog.Any("url", req.URL),
+	)
 	upstream, err := s.dialer.Dial("tcp", req.URL.Host)
 	if err != nil {
 		global.LOG.Errorf("proxy: handleTCP %s %s %s", req.Method, req.URL, err.Error())
@@ -67,12 +81,21 @@ func (s *Server) handleTCP(conn net.Conn, req *http.Request, secure bool) {
 	}()
 	io.Copy(upstream, conn)
 	wg.Wait()
-	global.LOG.Infof("TCP   %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
+	global.LOG.Info("",
+		global.LogAttrMap["TCP"],
+		global.LogAttrMap[req.Method],
+		slog.Any("url", req.URL),
+		slog.Duration("duration", time.Since(start)),
+	)
 }
 
 func (s *Server) handleHTTP(conn net.Conn, req *http.Request) {
 	start := time.Now()
-	global.LOG.Infof("HTTP  %-7s %s", req.Method, req.URL)
+	global.LOG.Debug("",
+		global.LogAttrMap["HTTP"],
+		global.LogAttrMap[req.Method],
+		slog.Any("url", req.URL),
+	)
 	res, err := s.transport.RoundTrip(req)
 	if err != nil {
 		global.LOG.Errorf("proxy: handleHTTP %s %s %s", req.Method, req.URL, err.Error())
@@ -92,7 +115,12 @@ func (s *Server) handleHTTP(conn net.Conn, req *http.Request) {
 	} else {
 		res.Write(conn)
 	}
-	global.LOG.Infof("HTTP  %-7s %s %dms", req.Method, req.URL, time.Since(start).Milliseconds())
+	global.LOG.Info("",
+		global.LogAttrMap["HTTP"],
+		global.LogAttrMap[req.Method],
+		slog.Any("url", req.URL),
+		slog.Duration("duration", time.Since(start)),
+	)
 }
 
 func (s *Server) handleTLS(conn net.Conn, req *http.Request) {
