@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net"
 	"net/http"
 	"runtime"
@@ -25,9 +24,9 @@ type ServerStatus struct {
 func (s *Server) handleRequest(conn net.Conn, req *http.Request) {
 	start := time.Now()
 	global.LOG.Debug("",
-		global.LogAttrMap["HTTP"],
-		global.LogAttrMap[req.Method],
-		slog.Any("url", req.URL),
+		global.LogAttrTag("HTTP"),
+		global.LogAttrMethod(req.Method),
+		global.LogAttrURL(req.URL),
 	)
 
 	if req.Method == http.MethodGet && req.URL.Path == "/status" {
@@ -48,19 +47,19 @@ func (s *Server) handleRequest(conn net.Conn, req *http.Request) {
 		conn.Write([]byte("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n"))
 	}
 	global.LOG.Info("",
-		global.LogAttrMap["HTTP"],
-		global.LogAttrMap[req.Method],
-		slog.Any("url", req.URL),
-		slog.Duration("duration", time.Since(start)),
+		global.LogAttrTag("HTTP"),
+		global.LogAttrMethod(req.Method),
+		global.LogAttrURL(req.URL),
+		global.LogAttrDuration(time.Since(start)),
 	)
 }
 
 func (s *Server) handleTCP(conn net.Conn, req *http.Request, secure bool) {
 	start := time.Now()
 	global.LOG.Debug("",
-		global.LogAttrMap["TCP"],
-		global.LogAttrMap[req.Method],
-		slog.Any("url", req.URL),
+		global.LogAttrTag("TCP"),
+		global.LogAttrMethod(req.Method),
+		global.LogAttrURL(req.URL),
 	)
 	upstream, err := s.dialer.Dial("tcp", req.URL.Host)
 	if err != nil {
@@ -82,19 +81,19 @@ func (s *Server) handleTCP(conn net.Conn, req *http.Request, secure bool) {
 	io.Copy(upstream, conn)
 	wg.Wait()
 	global.LOG.Info("",
-		global.LogAttrMap["TCP"],
-		global.LogAttrMap[req.Method],
-		slog.Any("url", req.URL),
-		slog.Duration("duration", time.Since(start)),
+		global.LogAttrTag("TCP"),
+		global.LogAttrMethod(req.Method),
+		global.LogAttrURL(req.URL),
+		global.LogAttrDuration(time.Since(start)),
 	)
 }
 
 func (s *Server) handleHTTP(conn net.Conn, req *http.Request) {
 	start := time.Now()
 	global.LOG.Debug("",
-		global.LogAttrMap["HTTP"],
-		global.LogAttrMap[req.Method],
-		slog.Any("url", req.URL),
+		global.LogAttrTag("HTTP"),
+		global.LogAttrMethod(req.Method),
+		global.LogAttrURL(req.URL),
 	)
 	res, err := s.transport.RoundTrip(req)
 	if err != nil {
@@ -116,10 +115,10 @@ func (s *Server) handleHTTP(conn net.Conn, req *http.Request) {
 		res.Write(conn)
 	}
 	global.LOG.Info("",
-		global.LogAttrMap["HTTP"],
-		global.LogAttrMap[req.Method],
-		slog.Any("url", req.URL),
-		slog.Duration("duration", time.Since(start)),
+		global.LogAttrTag("HTTP"),
+		global.LogAttrMethod(req.Method),
+		global.LogAttrURL(req.URL),
+		global.LogAttrDuration(time.Since(start)),
 	)
 }
 

@@ -188,16 +188,16 @@ func (s *Store) GetLeaf(serverName string) (*x509.Certificate, crypto.Signer, er
 
 	if cer, ok := s.Cache.Load(serverName); ok {
 		global.LOG.Debug("",
-			global.LogAttrMap["CERT"],
-			global.LogAttrMap["LOAD"],
+			global.LogAttrTag("CERT"),
+			global.LogAttrMethod("LOAD"),
 			slog.String("name", serverName),
 		)
 		return cer, s.caKey, nil
 	}
 	if cer, _, err := s.generateLeaf(dns, ips); err == nil {
 		global.LOG.Debug("",
-			global.LogAttrMap["CERT"],
-			global.LogAttrMap["STORE"],
+			global.LogAttrTag("CERT"),
+			global.LogAttrMethod("STORE"),
 			slog.String("name", serverName),
 		)
 		s.Cache.LoadOrStore(serverName, cer)
