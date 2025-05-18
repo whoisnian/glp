@@ -1,6 +1,6 @@
-github.com/whoisnian/glb v1.4.0 h1:lAjTxOzenjTRyG6j4WjxCCRD5g5zIlDB5pKIQxdQG68=
-github.com/whoisnian/glb v1.4.0/go.mod h1:RhkslF/g7UmPt4CSUOmEMjMXpBoz4+0FC3K1qZ0QOt8=
-golang.org/x/net v0.22.0 h1:9sGLhx7iRIHEiX0oAJ3MRZMUCElJgy7Br1nO+AMN3Tc=
-golang.org/x/net v0.22.0/go.mod h1:JKghWKKOSdJwpW2GEx0Ja7fmaKnMsbu+MWVZTokSYmg=
-golang.org/x/sys v0.18.0 h1:DBdB3niSjOA/O0blCZBqDefyWNYveAYMNF1Wum0DYQ4=
-golang.org/x/sys v0.18.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
+github.com/whoisnian/glb v1.5.6 h1:nBSF7PJDrqzlOtS6RTL9X4AOFn9x9ynKPjXljuz2/RI=
+github.com/whoisnian/glb v1.5.6/go.mod h1:WrbyZZYyM5ba6Xy4xMFSONWfonq49cntXFtgjDx/pZQ=
+golang.org/x/net v0.40.0 h1:79Xs7wF06Gbdcg4kdCCIQArK11Z1hr5POQ6+fIYHNuY=
+golang.org/x/net v0.40.0/go.mod h1:y0hY0exeL2Pku80/zKK7tpntoX23cqL3Oa6njdgRtds=
+golang.org/x/sys v0.33.0 h1:q3i8TbbEz+JRD9ywIRlyRAQbM0qF7hu24q3teo2hbuw=
+golang.org/x/sys v0.33.0/go.mod h1:BJP2sWEmIv4KK5OTEluFJCKSidICx8ciO85XgH3Ak8k=
