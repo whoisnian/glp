@@ -1,6 +1,10 @@
 package global
 
-import "github.com/whoisnian/glb/config"
+import (
+	"context"
+
+	"github.com/whoisnian/glb/config"
+)
 
 var CFG Config
 
@@ -14,8 +18,8 @@ type Config struct {
 	KeyLogFile string `flag:"keylog,,Key log file for TLS decryption in wireshark"`
 }
 
-func SetupConfig() {
-	err := config.FromCommandLine(&CFG)
+func SetupConfig(_ context.Context) {
+	_, err := config.FromCommandLine(&CFG)
 	if err != nil {
 		panic(err)
 	}
