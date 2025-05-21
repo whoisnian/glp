@@ -5,8 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net/http"
-
-	"github.com/whoisnian/glb/util/strutil"
+	"slices"
 )
 
 var httpMethods = []string{
@@ -26,7 +25,7 @@ func sniffHTTPMethodPrefix(data []byte) bool {
 	if pos == -1 {
 		return false
 	}
-	return strutil.SliceContain(httpMethods, string(data[:pos]))
+	return slices.Contains(httpMethods, string(data[:pos]))
 }
 
 func sniffTLSHandshakePrefix(data []byte) bool {
