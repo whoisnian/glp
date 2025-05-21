@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"golang.org/x/net/proxy"
+	xproxy "golang.org/x/net/proxy"
 )
 
 var directDialer = &net.Dialer{}
@@ -63,7 +63,7 @@ func (p *httpProxy) Dial(network, addr string) (conn net.Conn, err error) {
 	return bufioConn, nil
 }
 
-func parseProxy(rawURL string) (proxy.Dialer, *http.Transport, error) {
+func parseProxy(rawURL string) (xproxy.Dialer, *http.Transport, error) {
 	if rawURL == "" {
 		return directDialer, &http.Transport{
 			Proxy: nil, // http.DefaultTransport but without proxy
@@ -84,14 +84,14 @@ func parseProxy(rawURL string) (proxy.Dialer, *http.Transport, error) {
 		return nil, nil, err
 	}
 
-	var dialer proxy.Dialer
+	var dialer xproxy.Dialer
 	if u.Scheme == "socks5" {
-		var auth *proxy.Auth
+		var auth *xproxy.Auth
 		if u.User != nil {
 			pass, _ := u.User.Password()
-			auth = &proxy.Auth{User: u.User.Username(), Password: pass}
+			auth = &xproxy.Auth{User: u.User.Username(), Password: pass}
 		}
-		if dialer, err = proxy.SOCKS5("tcp", net.JoinHostPort(u.Hostname(), u.Port()), auth, directDialer); err != nil {
+		if dialer, err = xproxy.SOCKS5("tcp", net.JoinHostPort(u.Hostname(), u.Port()), auth, directDialer); err != nil {
 			return nil, nil, err
 		}
 	} else if u.Scheme == "http" || u.Scheme == "https" {
