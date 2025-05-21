@@ -16,7 +16,7 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
-// https://cs.opensource.google/go/go/+/refs/tags/go1.22.1:src/crypto/tls/tls.go;l=339
+// https://cs.opensource.google/go/go/+/refs/tags/go1.24.3:src/crypto/tls/tls.go;l=355
 func parsePrivateKey(der []byte) (crypto.Signer, error) {
 	if key, err := x509.ParsePKCS1PrivateKey(der); err == nil {
 		return key, nil
@@ -39,7 +39,7 @@ func parsePrivateKey(der []byte) (crypto.Signer, error) {
 	return nil, errors.New("ca: failed to parse private key")
 }
 
-// https://cs.opensource.google/go/go/+/refs/tags/go1.22.1:src/crypto/tls/tls.go;l=304
+// https://cs.opensource.google/go/go/+/refs/tags/go1.24.3:src/crypto/tls/tls.go;l=320
 func verify(cer *x509.Certificate, key crypto.Signer) error {
 	if time.Now().After(cer.NotAfter) {
 		return errors.New("ca: certificate has expired")
@@ -71,7 +71,7 @@ func verify(cer *x509.Certificate, key crypto.Signer) error {
 }
 
 // https://datatracker.ietf.org/doc/html/rfc5280#section-4.1.2.2
-// https://cs.opensource.google/go/go/+/refs/tags/go1.22.1:src/crypto/tls/generate_cert.go;l=106
+// https://cs.opensource.google/go/go/+/refs/tags/go1.24.3:src/crypto/tls/generate_cert.go;l=106
 func generateSerialNumber() (n *big.Int, err error) {
 	return rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 }
