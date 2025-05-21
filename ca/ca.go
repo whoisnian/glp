@@ -3,13 +3,16 @@
 package ca
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -18,40 +21,44 @@ import (
 	"strings"
 	"time"
 
+	"github.com/whoisnian/glb/logger"
 	"github.com/whoisnian/glb/util/fsutil"
 	"github.com/whoisnian/glb/util/osutil"
 	"github.com/whoisnian/glp/global"
 )
 
-type Store struct {
+var (
 	caCer *x509.Certificate
 	caKey crypto.Signer
-	Cache *Cache
-}
 
-func NewStore(certPath string) (*Store, error) {
-	fullPath, err := fsutil.ExpandHomeDir(certPath)
+	tlsCerCache *Cache
+)
+
+func Setup(ctx context.Context) {
+	fpath, err := fsutil.ExpandHomeDir(global.CFG.CACertPath)
 	if err != nil {
-		return nil, err
+		global.LOG.Fatal(ctx, "fsutil.ExpandHomeDir", logger.Error(err))
 	}
 
-	s := Store{Cache: NewCache(128)}
-	global.LOG.Infof("loading ca certificate from %s", fullPath)
-	if err = s.loadFrom(fullPath); err != nil && errors.Is(err, fs.ErrNotExist) {
-		global.LOG.Warnf("%s, generating new certificate", err.Error())
-		if err = s.generateCA(); err != nil {
-			return nil, err
+	global.LOG.Infof(ctx, "loading ca certificate from %s", fpath)
+	if err = loadFrom(fpath); err != nil && errors.Is(err, fs.ErrNotExist) {
+		global.LOG.Warn(ctx, "generating new certificate because of ErrNotExist")
+		if err = generateRoot(); err != nil {
+			global.LOG.Fatal(ctx, "ca.generateRoot", logger.Error(err))
 		}
-		err = s.saveAs(fullPath)
+		if err = saveAs(fpath); err != nil {
+			global.LOG.Fatal(ctx, "ca.saveAs", logger.Error(err))
+		}
 	}
-	return &s, err
+
+	tlsCerCache = NewCache(128)
 }
 
-// https://cs.opensource.google/go/go/+/refs/tags/go1.22.1:src/crypto/tls/tls.go;l=245
-func (s *Store) loadFrom(certPath string) error {
+// https://cs.opensource.google/go/go/+/refs/tags/go1.24.3:src/crypto/tls/tls.go;l=255
+func loadFrom(certPath string) error {
 	data, err := os.ReadFile(certPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("os.ReadFile: %w", err)
 	}
 
 	var block *pem.Block
@@ -60,58 +67,61 @@ func (s *Store) loadFrom(certPath string) error {
 			return errors.New("ca: failed to parse pem block")
 		}
 
-		if s.caCer == nil && block.Type == "CERTIFICATE" {
-			if s.caCer, err = x509.ParseCertificate(block.Bytes); err != nil {
-				return err
+		if caCer == nil && block.Type == "CERTIFICATE" {
+			if caCer, err = x509.ParseCertificate(block.Bytes); err != nil {
+				return fmt.Errorf("x509.ParseCertificate: %w", err)
 			}
-		} else if s.caKey == nil && strings.HasSuffix(block.Type, "PRIVATE KEY") {
-			if s.caKey, err = parsePrivateKey(block.Bytes); err != nil {
-				return err
+		} else if caKey == nil && strings.HasSuffix(block.Type, "PRIVATE KEY") {
+			if caKey, err = parsePrivateKey(block.Bytes); err != nil {
+				return fmt.Errorf("ca.parsePrivateKey: %w", err)
 			}
 		}
 	}
 
-	if s.caCer == nil {
+	if caCer == nil {
 		return errors.New("ca: missing ca certificate in pem blocks")
-	} else if s.caKey == nil {
+	} else if caKey == nil {
 		return errors.New("ca: missing private key in pem blocks")
 	}
-	return verify(s.caCer, s.caKey)
+	return verify(caCer, caKey)
 }
 
-func (s *Store) saveAs(certPath string) error {
+func saveAs(certPath string) error {
 	if err := os.MkdirAll(filepath.Dir(certPath), osutil.DefaultDirMode); err != nil {
-		return err
+		return fmt.Errorf("os.MkdirAll: %w", err)
 	}
 
 	fi, err := os.OpenFile(certPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
-		return err
+		return fmt.Errorf("os.OpenFile: %w", err)
 	}
 	defer fi.Close()
 
-	data, err := x509.MarshalPKCS8PrivateKey(s.caKey)
+	data, err := x509.MarshalPKCS8PrivateKey(caKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("x509.MarshalPKCS8PrivateKey: %w", err)
 	}
 
 	if err = pem.Encode(fi, &pem.Block{Type: "PRIVATE KEY", Bytes: data}); err != nil {
-		return err
+		return fmt.Errorf("caKey pem.Encode: %w", err)
 	}
-	return pem.Encode(fi, &pem.Block{Type: "CERTIFICATE", Bytes: s.caCer.Raw})
+	if err = pem.Encode(fi, &pem.Block{Type: "CERTIFICATE", Bytes: caCer.Raw}); err != nil {
+		return fmt.Errorf("caCer pem.Encode: %w", err)
+	}
+	return nil
 }
 
-// https://cs.opensource.google/go/go/+/refs/tags/go1.22.1:src/crypto/tls/generate_cert.go
+// https://cs.opensource.google/go/go/+/refs/tags/go1.24.3:src/crypto/tls/generate_cert.go
 // https://github.com/mitmproxy/mitmproxy/blob/d4200a7c0d2f4efd77c44651645b59662a29a54a/mitmproxy/certs.py#L176
-func (s *Store) generateCA() (err error) {
-	s.caKey, err = rsa.GenerateKey(rand.Reader, 2048)
+func generateRoot() (err error) {
+	caKey, err = rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return err
+		return fmt.Errorf("rsa.GenerateKey: %w", err)
 	}
 
 	serialNumber, err := generateSerialNumber()
 	if err != nil {
-		return err
+		return fmt.Errorf("ca.generateSerialNumber: %w", err)
 	}
 
 	now := time.Now()
@@ -131,20 +141,22 @@ func (s *Store) generateCA() (err error) {
 	}
 
 	// If parent is equal to template then the certificate is self-signed.
-	s.caCer, err = generateCert(&tmpl, &tmpl, s.caKey.Public(), s.caKey)
-	return err
+	if caCer, err = generateCert(&tmpl, &tmpl, caKey.Public(), caKey); err != nil {
+		return fmt.Errorf("ca.generateCert: %w", err)
+	}
+	return nil
 }
 
 // An end-entity certificate is sometimes called a leaf certificate.
 // Set Subject.CommonName from first Subject Alternate Name(DNSNames and IPAddresses).
-func (s *Store) generateLeaf(dns []string, ips []net.IP) (*x509.Certificate, crypto.Signer, error) {
+func generateLeaf(dns []string, ips []net.IP) (*x509.Certificate, crypto.Signer, error) {
 	if len(dns) == 0 && len(ips) == 0 {
 		return nil, nil, errors.New("ca: missing Subject Alternate Name for leaf certificate")
 	}
 
 	serialNumber, err := generateSerialNumber()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("ca.generateSerialNumber: %w", err)
 	}
 
 	now := time.Now()
@@ -163,19 +175,14 @@ func (s *Store) generateLeaf(dns []string, ips []net.IP) (*x509.Certificate, cry
 	}
 
 	// https://github.com/mitmproxy/mitmproxy/blob/d4200a7c0d2f4efd77c44651645b59662a29a54a/mitmproxy/certs.py#L281
-	cer, err := generateCert(&tmpl, s.caCer, s.caKey.Public(), s.caKey)
-	return cer, s.caKey, err
+	if cer, err := generateCert(&tmpl, caCer, caKey.Public(), caKey); err != nil {
+		return nil, nil, fmt.Errorf("ca.generateCert: %w", err)
+	} else {
+		return cer, caKey, nil
+	}
 }
 
-func (s *Store) Cer() *x509.Certificate {
-	return s.caCer
-}
-
-func (s *Store) Key() crypto.Signer {
-	return s.caKey
-}
-
-func (s *Store) GetLeaf(serverName string) (*x509.Certificate, crypto.Signer, error) {
+func GetCertificate(ctx context.Context, serverName string) (*tls.Certificate, error) {
 	var dns []string
 	var ips []net.IP
 	ip := net.ParseIP(serverName)
@@ -186,23 +193,35 @@ func (s *Store) GetLeaf(serverName string) (*x509.Certificate, crypto.Signer, er
 		serverName = dns[0]
 	}
 
-	if cer, ok := s.Cache.Load(serverName); ok {
-		global.LOG.Debug("",
+	if cer, ok := tlsCerCache.Load(serverName); ok {
+		global.LOG.Debug(ctx, "",
 			global.LogAttrTag("CERT"),
 			global.LogAttrMethod("LOAD"),
 			slog.String("name", serverName),
 		)
-		return cer, s.caKey, nil
+		return cer, nil
 	}
-	if cer, _, err := s.generateLeaf(dns, ips); err == nil {
-		global.LOG.Debug("",
+	if cer, _, err := generateLeaf(dns, ips); err == nil {
+		global.LOG.Debug(ctx, "",
 			global.LogAttrTag("CERT"),
 			global.LogAttrMethod("STORE"),
 			slog.String("name", serverName),
 		)
-		s.Cache.LoadOrStore(serverName, cer)
-		return cer, s.caKey, nil
+		tlsCer := &tls.Certificate{
+			Certificate: [][]byte{cer.Raw, caCer.Raw},
+			PrivateKey:  caKey,
+			Leaf:        cer,
+		}
+		tlsCerCache.LoadOrStore(serverName, tlsCer)
+		return tlsCer, nil
 	} else {
-		return nil, nil, err
+		return nil, fmt.Errorf("ca.generateLeaf: %w", err)
 	}
+}
+
+func CacheStatus() (length int, capacity int) {
+	if tlsCerCache == nil {
+		return 0, 0
+	}
+	return tlsCerCache.Status()
 }
