@@ -1,6 +1,7 @@
 package global
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -20,18 +21,14 @@ var (
 	attrMethodMap map[string]slog.Attr
 )
 
-func SetupLogger() {
+func SetupLogger(_ context.Context) {
 	colorful = ansi.IsSupported(os.Stderr.Fd())
 
+	options := logger.Options{Level: logger.LevelInfo, Colorful: colorful, AddSource: CFG.Debug}
 	if CFG.Debug {
-		LOG = logger.New(logger.NewNanoHandler(os.Stderr, logger.NewOptions(
-			logger.LevelDebug, colorful, true,
-		)))
-	} else {
-		LOG = logger.New(logger.NewNanoHandler(os.Stderr, logger.NewOptions(
-			logger.LevelInfo, colorful, false,
-		)))
+		options.Level = slog.LevelDebug
 	}
+	LOG = logger.New(logger.NewNanoHandler(os.Stderr, options))
 
 	attrTagMap = map[string]slog.Attr{
 		"CERT": slog.String("tag", "CERT"),
@@ -39,7 +36,7 @@ func SetupLogger() {
 		"TCP":  slog.String("tag", "TCP "),
 	}
 
-	generate := func(val string) slog.Attr {
+	generateMethodAttr := func(val string) slog.Attr {
 		if colorful {
 			return slog.Any("method", logger.AnsiString{Prefix: ansi.BlueFG, Value: val})
 		} else {
@@ -47,17 +44,17 @@ func SetupLogger() {
 		}
 	}
 	attrMethodMap = map[string]slog.Attr{
-		"STORE":            generate("STORE  "),
-		"LOAD":             generate("LOAD   "),
-		http.MethodGet:     generate("GET    "),
-		http.MethodPost:    generate("POST   "),
-		http.MethodPut:     generate("PUT    "),
-		http.MethodDelete:  generate("DELETE "),
-		http.MethodHead:    generate("HEAD   "),
-		http.MethodPatch:   generate("PATCH  "),
-		http.MethodOptions: generate("OPTIONS"),
-		http.MethodConnect: generate("CONNECT"),
-		http.MethodTrace:   generate("TRACE  "),
+		"STORE":            generateMethodAttr("STORE  "),
+		"LOAD":             generateMethodAttr("LOAD   "),
+		http.MethodGet:     generateMethodAttr("GET    "),
+		http.MethodPost:    generateMethodAttr("POST   "),
+		http.MethodPut:     generateMethodAttr("PUT    "),
+		http.MethodDelete:  generateMethodAttr("DELETE "),
+		http.MethodHead:    generateMethodAttr("HEAD   "),
+		http.MethodPatch:   generateMethodAttr("PATCH  "),
+		http.MethodOptions: generateMethodAttr("OPTIONS"),
+		http.MethodConnect: generateMethodAttr("CONNECT"),
+		http.MethodTrace:   generateMethodAttr("TRACE  "),
 	}
 }
 
@@ -76,10 +73,10 @@ func LogAttrMethod(m string) slog.Attr {
 }
 
 func LogAttrURL(u *url.URL) slog.Attr {
+	full := u.String()
 	if colorful {
-		fullStr := u.String()
-		l, r := 0, len(fullStr)
-		for i, ch := range fullStr {
+		l, r := 0, len(full)
+		for i, ch := range full {
 			if ch == rune('/') {
 				l = i + 1
 			} else if ch == rune('?') || ch == rune('#') {
@@ -87,7 +84,7 @@ func LogAttrURL(u *url.URL) slog.Attr {
 				break
 			}
 		}
-		return slog.String("url", fullStr[:l]+ansi.MagentaFG+fullStr[l:r]+ansi.Reset+fullStr[r:])
+		return slog.String("url", full[:l]+ansi.MagentaFG+full[l:r]+ansi.Reset+full[r:])
 	} else {
 		return slog.String("url", u.String())
 	}
