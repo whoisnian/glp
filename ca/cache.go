@@ -1,42 +1,38 @@
 package ca
 
 import (
-	"crypto/x509"
+	"crypto/tls"
 	"sync"
 )
 
 // https://github.com/golang/groupcache/blob/master/lru/lru.go
-type elem struct {
-	next *elem
-	prev *elem
-
-	name string
-	cert *x509.Certificate
-}
-
 type Cache struct {
 	cap  int
-	len  int
 	root elem
+	idx  map[string]*elem
+	mu   *sync.Mutex
+}
 
-	mu  *sync.Mutex
-	idx map[string]*elem
+type elem struct {
+	next, prev *elem
+
+	name string
+	cert *tls.Certificate
 }
 
 func NewCache(cap int) *Cache {
 	c := &Cache{
 		cap:  cap,
-		len:  0,
 		root: elem{},
-		mu:   &sync.Mutex{},
 		idx:  make(map[string]*elem),
+		mu:   &sync.Mutex{},
 	}
 	c.root.next = &c.root
 	c.root.prev = &c.root
 	return c
 }
 
-func (c *Cache) Load(key string) (value *x509.Certificate, ok bool) {
+func (c *Cache) Load(key string) (value *tls.Certificate, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -47,7 +43,7 @@ func (c *Cache) Load(key string) (value *x509.Certificate, ok bool) {
 	return nil, false
 }
 
-func (c *Cache) LoadOrStore(key string, value *x509.Certificate) (actual *x509.Certificate, loaded bool) {
+func (c *Cache) LoadOrStore(key string, value *tls.Certificate) (actual *tls.Certificate, loaded bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -56,7 +52,7 @@ func (c *Cache) LoadOrStore(key string, value *x509.Certificate) (actual *x509.C
 		return e.cert, true
 	} else {
 		e = c.pushFront(&elem{name: key, cert: value})
-		if c.len > c.cap {
+		if len(c.idx) > c.cap {
 			if ee := c.back(); ee != nil {
 				c.remove(ee)
 			}
@@ -65,16 +61,15 @@ func (c *Cache) LoadOrStore(key string, value *x509.Certificate) (actual *x509.C
 	}
 }
 
-func (c *Cache) Len() int {
-	return c.len
-}
+func (c *Cache) Status() (length int, capacity int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-func (c *Cache) Cap() int {
-	return c.cap
+	return len(c.idx), c.cap
 }
 
 func (c *Cache) back() *elem {
-	if c.len == 0 {
+	if len(c.idx) == 0 {
 		return nil
 	}
 	return c.root.prev
@@ -97,7 +92,6 @@ func (c *Cache) pushFront(e *elem) *elem {
 	e.next = c.root.next
 	e.prev.next = e
 	e.next.prev = e
-	c.len++
 	c.idx[e.name] = e
 	return e
 }
