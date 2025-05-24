@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"io"
-	"os"
+	"runtime"
+	"time"
 
+	"github.com/whoisnian/glb/logger"
 	"github.com/whoisnian/glb/util/osutil"
 	"github.com/whoisnian/glp/ca"
 	"github.com/whoisnian/glp/global"
@@ -12,39 +15,35 @@ import (
 )
 
 func main() {
-	global.SetupConfig()
-	global.SetupLogger()
-	global.LOG.Debugf("use config: %+v", global.CFG)
+	ctx := context.Background()
+	global.SetupConfig(ctx)
+	global.SetupLogger(ctx)
+	global.LOG.Debugf(ctx, "use config: %+v", global.CFG)
 
 	if global.CFG.Version {
-		fmt.Printf("%s %s(%s)\n", global.AppName, global.Version, global.BuildTime)
+		fmt.Printf("%s version %s built with %s at %s\n", global.AppName, global.Version, runtime.Version(), global.BuildTime)
 		return
 	}
 
-	caStore, err := ca.NewStore(global.CFG.CACertPath)
+	ca.Setup(ctx)
+	server, err := proxy.NewServer(global.CFG.ListenAddr, global.CFG.RelayProxy, global.CFG.KeyLogFile)
 	if err != nil {
-		global.LOG.Fatal(err.Error())
-	}
-
-	var keyLogWriter io.WriteCloser
-	if global.CFG.KeyLogFile != "" {
-		keyLogWriter, err = os.Create(global.CFG.KeyLogFile)
-		if err != nil {
-			global.LOG.Fatal(err.Error())
-		}
-		defer keyLogWriter.Close()
-	}
-
-	server, err := proxy.NewServer(global.CFG.ListenAddr, global.CFG.RelayProxy, caStore, keyLogWriter)
-	if err != nil {
-		global.LOG.Fatal(err.Error())
+		global.LOG.Fatal(ctx, "proxy.NewServer", logger.Error(err))
 	}
 	go func() {
-		global.LOG.Infof("proxy server started: http://%s", global.CFG.ListenAddr)
-		if err := server.ListenAndServe(); err != nil {
-			global.LOG.Fatal(err.Error())
+		global.LOG.Infof(ctx, "proxy server started: http://%s", global.CFG.ListenAddr)
+		if err := server.ListenAndServe(); errors.Is(err, proxy.ErrServerClosed) {
+			global.LOG.Warn(ctx, "proxy server shutting down")
+		} else if err != nil {
+			global.LOG.Fatal(ctx, "server.ListenAndServe", logger.Error(err))
 		}
 	}()
 
 	osutil.WaitForStop()
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		global.LOG.Warn(ctx, "server.Shutdown", logger.Error(err))
+	}
 }
