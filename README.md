@@ -10,7 +10,7 @@ docker run --rm -it --name devbox \
   --network hostonly \
   -e HTTP_PROXY=http://172.27.1.1:8889 \
   -e HTTPS_PROXY=http://172.27.1.1:8889 \
-  alpine:3.19 sh
+  alpine:3.21 sh
 
 # step.2 in terminal@2: build and start proxy server
 ./build/build.sh . && ./output/glp -l 172.27.1.1:8889
@@ -19,12 +19,11 @@ docker run --rm -it --name devbox \
 openssl x509 -outform pem -in ~/.mitmproxy/mitmproxy-ca.pem -out ~/.mitmproxy/glp.pem
 docker cp ~/.mitmproxy/glp.pem devbox:/tmp/glp.pem
 
-# step.4 in terminal@1: temporarily append to system ca-certificates.crt and upgrade
+# step.4 in terminal@1: append to system ca-certificates.crt and upgrade through proxy
 cat /tmp/glp.pem >> /etc/ssl/certs/ca-certificates.crt
-apk update && apk upgrade && apk add git # maybe upgrade ca-certificates-bundle and override system ca-certificates.crt
+apk update && apk upgrade && apk add git
 
-# step.5 in terminal@1: permanently trust ca certificate and git clone from github
-cat /tmp/glp.pem > /usr/local/share/ca-certificates/glp.crt && update-ca-certificates
+# step.5 in terminal@1: git clone from github through proxy
 git clone https://github.com/whoisnian/glp.git
 ```
 ![alpine-example](./doc/alpine-example.svg)
